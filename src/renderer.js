@@ -159,7 +159,7 @@ rk.addEventListener('dom-ready', () => {
 // 読み込みが本当に止まった時に緑化（SSO は複数回リダイレクトするため did-stop-loading で判定）
 rk.addEventListener('did-stop-loading', () => {
   webReady = true;
-  setConn('ok', isTargetUrl() ? '接続OK（対象ページ）' : '読込完了（ログイン画面）');
+  setConn('ok', isTargetUrl() ? '接続OK' : '読込完了');
   if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
   // アプリ画面での再読込完了時は、戻したログイン担当者で一覧を取り直す
   else if (pendingListReload && isTargetUrl()) {
@@ -199,6 +199,7 @@ function hideMask() {
 // ---- 画面切替（認証 ⇄ アプリ） -------------------------------------------
 function showAuth() {
   document.body.className = 'auth';
+  updatePromptShown = false; // 再ログイン時は更新確認を再度出せるように
   setConn('warn', '認証待ち（ログインしてください）');
   hideMask();
   updateHeaderTitle();
@@ -878,6 +879,7 @@ function applyViewOnly(on) {
 
 // ---- 自動更新（GitHub Releases / electron-updater） -----------------------
 let updateBusy = false; // ダウンロード〜再起動の進行中フラグ
+let updatePromptShown = false; // このログインセッションで更新確認ダイアログを表示したか（多重表示防止）
 
 // フッターに現在のバージョンを表示する（更新ボタンの右）。
 function setVersionLabel(v) {
@@ -908,7 +910,11 @@ async function checkForUpdate() {
   btn.title = `新しいバージョン ${r.version || ''} が利用可能です（現在 ${r.current}）`;
   btn.classList.remove('hidden');
   // 初期表示時に更新を促す。キャンセルならボタンを残してそのまま利用継続。
+  // enterApp は webview の dom-ready / did-stop-loading で複数回呼ばれ得るため、
+  // 確認ダイアログはこのログインセッションで一度だけに制限する（多重表示防止）。
   // （confirm はネイティブダイアログのため改行は \n。HTML タグ </br> は使えない）
+  if (updatePromptShown) return;
+  updatePromptShown = true;
   if (
     confirm(
       `最新のバージョン ${r.version || ''} がアップロードされています。\n最新のバージョンにアップデートしますか？`
