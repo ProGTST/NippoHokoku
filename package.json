@@ -8,7 +8,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "pack": "electron-packager . NippoHokoku --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"^/dist\" --ignore=\"^/\\.git\"",
+    "pack": "electron-packager . NippoHokoku --platform=win32 --arch=x64 --out=../NippoHokoku-pack --overwrite --tmpdir=false --ignore=\"^/dist\" --ignore=\"^/\\.git\"",
     "dist": "electron-builder --win portable",
     "dist:nsis": "electron-builder --win nsis"
   },
