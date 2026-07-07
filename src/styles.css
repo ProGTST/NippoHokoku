@@ -102,6 +102,8 @@ input, select, textarea {
   background: #fff; color: var(--text);
 }
 input[readonly] { background: #eef0f2; color: #444; }
+/* 幅を揃える共通クラス（日付 / 担当者コード / 作業内容） */
+.w-field { width: 150px; min-width: 150px; flex: 0 0 auto; }
 input.grow { flex: 1; min-width: 120px; }
 input.grow2 { flex: 1; min-width: 260px; }
 textarea { flex: 1; resize: vertical; }
@@ -120,6 +122,8 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 button.primary:hover { background: var(--primary-d); }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.danger:hover { filter: brightness(.93); }
+button.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+button.ok:hover { filter: brightness(.93); }
 button.ghost { background: transparent; }
 button.date-btn { padding: 5px 8px; }
 
@@ -200,6 +204,21 @@ td.num { text-align: right; }
 .frow { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .frow > label { color: var(--muted); min-width: 74px; text-align: right; }
 .frow > label.lbl-sm { min-width: 56px; }
+
+/* ログイン→アプリ遷移中のマスク（既存システム画面を隠す） */
+.enter-mask {
+  position: fixed; inset: 0; z-index: 100;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  color: var(--muted); font-size: 13px;
+}
+.enter-mask.hidden { display: none; }
+.spinner {
+  width: 30px; height: 30px;
+  border: 3px solid var(--border); border-top-color: var(--primary);
+  border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* toast */
 #toast {

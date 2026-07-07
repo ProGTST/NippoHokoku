@@ -54,30 +54,30 @@
   <div id="registModal" class="modal-overlay hidden" data-close="registModal">
     <div class="modal">
       <div class="modal-head">
-        <span class="modal-title">日報 <span id="modeBadge" class="badge new">新規モード</span></span>
+        <span class="modal-title">日報登録 <span id="modeBadge" class="badge new">新規モード</span></span>
         <span class="modal-sub">日報コード: <b id="nippoCdView">新規登録</b></span>
+        <span class="modal-sub result-inline">合計: <b id="totalVal">-</b></span>
         <button id="btnCloseRegist" class="ghost" title="閉じる">✕</button>
       </div>
       <input id="nippoCd" type="hidden" />
       <div class="modal-body">
         <div class="frow">
           <label>日付</label>
-          <input id="date" type="text" placeholder="yyyy/m/d" size="12" />
+          <input id="date" type="date" class="w-field" />
           <button data-days="-3" class="date-btn">一昨昨日</button>
           <button data-days="-2" class="date-btn">一昨日</button>
           <button data-days="-1" class="date-btn">昨日</button>
           <button data-days="0" class="date-btn">今日</button>
-          <span class="result-inline">合計: <b id="totalVal">-</b></span>
         </div>
         <div class="frow">
           <label>担当者</label>
-          <input id="regTanto" type="text" readonly size="12" />
+          <input id="regTanto" type="text" readonly class="w-field" />
           <input id="regTantoName" type="text" readonly class="grow" />
           <button id="btnTantoSearch" title="担当者マスタ検索">検索</button>
         </div>
         <div class="frow">
           <label>案件コード</label>
-          <input id="ankenCd" type="text" readonly size="14" />
+          <input id="ankenCd" type="text" readonly class="w-field" />
           <button id="btnAnkenSearch" title="案件マスタ検索">検索</button>
         </div>
         <div class="frow">
@@ -90,7 +90,7 @@
         </div>
         <div class="frow">
           <label>作業内容</label>
-          <select id="sagyoNaiyo"></select>
+          <select id="sagyoNaiyo" class="w-field"></select>
           <label class="lbl-sm">作業時間</label>
           <input id="sagyozikan" type="text" size="6" />
           <label class="lbl-sm">作業進捗</label>
@@ -98,20 +98,19 @@
         </div>
         <div class="frow">
           <label>遅れ報告</label>
-          <textarea id="okureHokoku" rows="2"></textarea>
+          <textarea id="okureHokoku" rows="5"></textarea>
         </div>
         <div class="frow">
           <label>その他報告</label>
-          <textarea id="sonotaHokoku" rows="2"></textarea>
+          <textarea id="sonotaHokoku" rows="5"></textarea>
         </div>
       </div>
       <div class="modal-foot">
         <button id="btnRegist" class="primary">登録 / 更新</button>
         <button id="btnDelete" class="danger">削除</button>
         <span class="spacer"></span>
-        <button id="btnCopy" class="ghost" title="日報コードを空にして新規化">コピー</button>
+        <button id="btnCopy" class="ok" title="日報コードを空にして新規化">コピー</button>
         <button id="btnClear" class="ghost">クリア</button>
-        <button id="btnCloseRegist2" class="ghost">閉じる</button>
       </div>
     </div>
   </div>
@@ -149,6 +148,12 @@
         <div id="tantoTable" class="table-wrap modal-table"></div>
       </div>
     </div>
+  </div>
+
+  <!-- ログイン→アプリ遷移中に既存システム画面を隠すローディングマスク -->
+  <div id="enterMask" class="enter-mask hidden">
+    <div class="spinner"></div>
+    <div>読み込み中…</div>
   </div>
 
   <script src="renderer.js"></script>

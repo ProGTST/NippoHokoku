@@ -51,13 +51,36 @@ function initSelects() {
   sinchoku.value = '順調'; // 既定値
 }
 
+// <input type="date"> 用に yyyy-mm-dd を返す（当日 +offset）。
 function fmtDate(offsetDays) {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mo}-${da}`;
+}
+
+// 任意の日付表記（yyyy/m/d または yyyy-mm-dd）を input[type=date] 用 yyyy-mm-dd に変換。
+function toInputDate(s) {
+  const m = String(s || '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+  if (!m) return '';
+  return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+}
+
+// input[type=date] の値（yyyy-mm-dd）を API 送信用 yyyy/m/d（ゼロ埋めなし）に変換。
+function toApiDate(s) {
+  const m = String(s || '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+  if (!m) return '';
+  return `${m[1]}/${Number(m[2])}/${Number(m[3])}`;
 }
 
 // ---- webview 状態 ---------------------------------------------------------
+// 対象ページへ遷移が確定した瞬間（描画前）にマスクで覆い、既存システム画面を見せない。
+// ログイン画面（対象外URL）ではマスクを外してログインを表示する。
+rk.addEventListener('did-navigate', (e) => {
+  if (!document.body.classList.contains('auth')) return;
+  if (isTargetUrl(e.url)) showMask(); else hideMask();
+});
 rk.addEventListener('dom-ready', () => {
   webReady = true;
   // 対象ページに戻ってきた（＝ログイン完了想定）ら、認証中なら自動でアプリ表示を試行
@@ -83,45 +106,50 @@ function setConn(state, text) {
 }
 function setStatus(text) { $('outStatus').textContent = text; }
 
-function isTargetUrl() {
-  const u = (rk.getURL && rk.getURL()) || '';
+function isTargetUrl(u) {
+  u = u || (rk.getURL && rk.getURL()) || '';
   return /rkanri\.genech\.co\.jp\/kanri\/nippo/.test(u);
 }
+
+// ---- 遷移マスク（既存システム画面を隠す） --------------------------------
+function showMask() { $('enterMask').classList.remove('hidden'); }
+function hideMask() { $('enterMask').classList.add('hidden'); }
 
 // ---- 画面切替（認証 ⇄ アプリ） -------------------------------------------
 function showAuth() {
   document.body.className = 'auth';
   setConn('warn', '認証待ち（ログインしてください）');
+  hideMask();
   updateHeaderTitle();
 }
 function enterApp() {
   document.body.className = 'app';
+  hideMask();
   updateHeaderTitle();
 }
 
-// ヘッダーのタイトルを「現在のページ名」に合わせて更新する。
+// ヘッダーのタイトルは「ログイン」か「日報一覧」の2パターンのみ。
+// モーダル（日報登録・ZOOM）表示時もヘッダーは変更しない。
 function updateHeaderTitle() {
-  let t;
-  if (!document.body.classList.contains('app')) t = 'ログイン';
-  else if (isOpen('ankenModal') || isOpen('tantoModal')) t = 'ZOOM';
-  else if (isOpen('registModal')) t = '日報登録';
-  else t = '日報一覧';
-  $('pageTitle').textContent = t;
+  $('pageTitle').textContent = document.body.classList.contains('app') ? '日報一覧' : 'ログイン';
 }
 
 // ログイン確認 → アプリ表示。silent=true のときは失敗時トーストを抑制（自動試行用）。
 async function tryEnter(silent) {
   if (!webReady) { if (!silent) toast('埋め込みブラウザの準備中です。少し待って再度お試しください。', 'ng'); return; }
   if (!isTargetUrl()) { if (!silent) toast('先に対象システムにログインしてください。', 'ng'); return; }
-  const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得');
+  showMask(); // 取得〜切替の間、既存システム画面を隠す
+  const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得', true);
   if (r && Array.isArray(r.data)) {
     enterApp();
     renderTableInto($('listTable'), 'getNippoList', r.data, openEditModal);
     // ログイン中の本人を自動セット（初回のみ）。担当者が変わったら一覧を取り直す。
     const changed = await autoSetTantoOnce();
     if (changed) await loadList();
+  } else {
+    // 入れない（ログイン切れ等。callApi 内で showAuth 済みの場合あり）→ マスクを外す
+    hideMask();
   }
-  // ログイン切れ等（callApi 内で showAuth 済み）のときは何もしない
 }
 
 // ログイン中ユーザーの担当者を自動判定してセット（初回のみ）。
@@ -307,7 +335,7 @@ function openEditModal(row) {
   if (row['担当者コード']) setVal('tanto', row['担当者コード']);
   if (row['担当者名']) setVal('tantoName', row['担当者名']);
   setVal('nippoCd', row['日報コード']);
-  setVal('date', row['日付']);
+  setVal('date', toInputDate(row['日付']));
   setVal('ankenCd', row['案件コード']);
   setVal('torihikisakiMei', row['取引先名']);
   setVal('ankenMei', row['案件名']);
@@ -344,6 +372,7 @@ function getVal(id) { return ($(id)?.value ?? '').toString(); }
 function collectForm() {
   const o = { tanto: getVal('tanto') };
   REG_FIELDS.forEach(f => { o[f] = getVal(f); });
+  o.date = toApiDate(getVal('date')); // yyyy-mm-dd → yyyy/m/d
   return o;
 }
 
@@ -407,15 +436,18 @@ async function doDelete() {
 // 合計作業時間を取得して表示（登録モーダルを開くと自動実行。トーストは抑制）。
 async function doTotal() {
   $('totalVal').textContent = '-';
-  if (getVal('date').trim() === '') return;
-  const r = await callApi('getTotal', { tanto: getVal('tanto'), date: getVal('date') }, '合計取得', true);
+  const d = toApiDate(getVal('date'));
+  if (!d) return;
+  const r = await callApi('getTotal', { tanto: getVal('tanto'), date: d }, '合計取得', true);
   if (r && r.ok) $('totalVal').textContent = (r.data ?? '-');
 }
 
 // ---- ⑤ 案件マスタ検索モーダル --------------------------------------------
 function openAnkenModal() {
+  setVal('svalue', '');
   openModal('ankenModal');
   $('svalue').focus();
+  searchAnken(false); // 初期表示は履歴を実行して表示（検索ボタンは再検索用）
 }
 async function searchAnken(withSvalue) {
   const body = withSvalue ? { tanto: getVal('tanto'), svalue: getVal('svalue') } : { tanto: getVal('tanto') };
@@ -432,8 +464,10 @@ function pickAnken(row) {
 
 // ---- ⑥ 担当者マスタ検索モーダル ------------------------------------------
 function openTantoModal() {
+  setVal('svalue2', '');
   openModal('tantoModal');
   $('svalue2').focus();
+  searchTantoList(); // 初期表示は全件（svalue 空）を実行して表示（検索ボタンは再検索用）
 }
 async function searchTantoList() {
   const r = await callApi('getTantoList', { svalue: getVal('svalue2') }, '担当者検索');
@@ -473,7 +507,6 @@ function wire() {
 
   // 登録モーダル
   $('btnCloseRegist').addEventListener('click', () => closeModal('registModal'));
-  $('btnCloseRegist2').addEventListener('click', () => closeModal('registModal'));
   $('btnRegist').addEventListener('click', () => doRegist());
   $('btnDelete').addEventListener('click', () => doDelete());
   $('btnCopy').addEventListener('click', () => { setVal('nippoCd', ''); updateMode(); toast('新規モードに切替（内容は保持）', 'ok'); });
@@ -482,7 +515,11 @@ function wire() {
   document.querySelectorAll('.date-btn').forEach(btn => {
     btn.addEventListener('click', () => { setVal('date', fmtDate(Number(btn.dataset.days))); doTotal(); });
   });
-  // 日付を手入力で変えたときも合計を取り直す
+  // 日付はカレンダー入力のみ（キーボードでの直接入力は不可。Tab 等は許可）
+  $('date').addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') e.preventDefault();
+  });
+  // カレンダーで日付が変わったら合計を取り直す
   $('date').addEventListener('change', () => doTotal());
   $('btnTantoSearch').addEventListener('click', () => openTantoModal());
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
