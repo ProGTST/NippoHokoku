@@ -11,6 +11,31 @@ const SAGYO_SHINCHOKU = ['', '順調', 'やや遅れ', '遅れ'];
 const FORM_FIELDS = ['nippoCd', 'tanto', 'date', 'ankenCd', 'torihikisakiMei',
   'ankenMei', 'sagyoNaiyo', 'sagyozikan', 'sagyoShinchoku', 'okureHokoku', 'sonotaHokoku'];
 
+// エンドポイント別の表示列ホワイトリスト（現行仕様.md §7.1 / §7.4）。
+// 行データは全フィールド保持し、表示のみ絞る。未定義/非該当は全列にフォールバック。
+const DISPLAY_COLS = {
+  getNippoList: ['日付', '案件コード', '取引先名', '案件名', '作業時間', '作業内容', '作業進捗', 'その他報告事項'],
+  gethistory: ['案件コード', '取引先名', '案件名'],
+  getTantoList: ['key', '名称1'],
+};
+
+// 表示列の見出しラベル（生キーが英字等の場合の日本語化。現行仕様.md §6.2）。
+const HEADER_LABELS = {
+  getTantoList: { key: '担当者コード', 名称1: '担当者名' },
+};
+
+// registData / deleteData のビジネス成否は応答 {status:"success"} で判定（現行仕様.md §8.3/§8.4）。
+function bizStatus(result) {
+  const d = result && result.data;
+  if (d && typeof d === 'object' && !Array.isArray(d) && 'status' in d) return String(d.status);
+  return null;
+}
+function isBizOk(r) {
+  if (!r || !r.ok) return false;
+  const s = bizStatus(r);
+  return s === null || s === 'success';
+}
+
 // ---- 要素参照 -------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const rk = $('rk');               // <webview>
@@ -110,11 +135,17 @@ function showResult(endpoint, label, reqBody, result) {
     return;
   }
   const status = result.ok ? `OK (${result.status})` : `NG (${result.status})`;
-  $('outStatus').textContent = status + (result.hasToken ? '' : ' / XSRFトークン未取得');
+  const biz = bizStatus(result);
+  $('outStatus').textContent = status
+    + (result.hasToken ? '' : ' / XSRFトークン未取得')
+    + (biz ? ` / status: ${biz}` : '');
 
   renderTable(endpoint, result.data);
-  if (result.ok) toast(`${label || endpoint}: 成功`, 'ok');
-  else toast(`${label || endpoint}: ${status}`, 'ng');
+
+  if (!result.ok) { toast(`${label || endpoint}: ${status}`, 'ng'); return; }
+  // HTTP は 200 でも {status:"success"} 以外はビジネスエラー扱い
+  if (biz !== null && biz !== 'success') { toast(`${label || endpoint}: 失敗 (status: ${biz})`, 'ng'); return; }
+  toast(`${label || endpoint}: 成功`, 'ok');
 }
 
 function renderTable(endpoint, data) {
@@ -124,11 +155,17 @@ function renderTable(endpoint, data) {
     wrap.innerHTML = '<div class="muted" style="padding:8px;">（一覧データなし）</div>';
     return;
   }
-  const cols = Object.keys(data[0]);
+  const allKeys = Object.keys(data[0]);
+  // 表示列を絞り込み（ホワイトリストに存在する列のみ、定義順）。
+  // 非該当（1列も一致しない）または未定義なら全列にフォールバック。
+  const wl = DISPLAY_COLS[endpoint];
+  const picked = wl ? wl.filter(c => allKeys.includes(c)) : [];
+  const cols = picked.length ? picked : allKeys;
+  const labels = HEADER_LABELS[endpoint] || {};
   const table = document.createElement('table');
   const thead = document.createElement('thead');
   const htr = document.createElement('tr');
-  cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; htr.appendChild(th); });
+  cols.forEach(c => { const th = document.createElement('th'); th.textContent = labels[c] || c; htr.appendChild(th); });
   thead.appendChild(htr);
   table.appendChild(thead);
 
@@ -254,7 +291,7 @@ function wire() {
     const body = collectForm();
     const isNew = body.nippoCd.trim() === '';
     const r = await callApi('registData', body, isNew ? '新規登録' : '更新');
-    if (r && r.ok) {
+    if (isBizOk(r)) {
       clearForm();
       callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得');
     }
@@ -264,7 +301,7 @@ function wire() {
     if (getVal('nippoCd').trim() === '') { toast('日報コードが空です（削除対象なし）', 'ng'); return; }
     if (!confirm('削除します。元に戻せませんのでご注意を')) return;
     const r = await callApi('deleteData', { nippoCd: getVal('nippoCd') }, '削除');
-    if (r && r.ok) {
+    if (isBizOk(r)) {
       clearForm();
       callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得');
     }
