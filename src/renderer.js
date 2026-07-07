@@ -11,6 +11,10 @@ const SAGYO_SHINCHOKU = ['順調', 'やや遅れ', '遅れ'];
 const REG_FIELDS = ['nippoCd', 'date', 'ankenCd', 'torihikisakiMei', 'ankenMei',
   'sagyoNaiyo', 'sagyozikan', 'sagyoShinchoku', 'okureHokoku', 'sonotaHokoku'];
 
+// リセット（初期表示状態への復元）でスナップショットする項目
+// 担当者は登録モーダル側（regTanto/regTantoName）を対象にする（メインはログイン担当者で固定）
+const SNAPSHOT_FIELDS = REG_FIELDS.concat(['regTanto', 'regTantoName']);
+
 // エンドポイント別の表示列ホワイトリスト（現行仕様.md §7.1 / §7.4）。
 // 行データは全フィールド保持し、表示のみ絞る。未定義/非該当は全列にフォールバック。
 const DISPLAY_COLS = {
@@ -29,6 +33,7 @@ const $ = (id) => document.getElementById(id);
 const rk = $('rk');               // <webview>
 let webReady = false;
 let tantoAutoDone = false;        // 本人自動セット（初回のみ）
+let formSnapshot = null;          // 登録モーダルを開いた時点の値（リセット用）
 
 // rkanri ページ内から、ログイン中ユーザーの担当者コード（P-XXXXXX）を拾う。
 // 対象ページは担当者コードを input に保持しているため、その値を読む。
@@ -72,6 +77,23 @@ function toApiDate(s) {
   const m = String(s || '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
   if (!m) return '';
   return `${m[1]}/${Number(m[2])}/${Number(m[3])}`;
+}
+
+// 日付文字列を比較用の数値（yyyymmdd）に変換。
+function dateNum(s) {
+  const m = String(s || '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+  return m ? Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]) : 0;
+}
+
+// 日報一覧を「日付 降順 → 作業時間 降順 → 案件コード 降順」で並べ替える。
+function sortNippoList(rows) {
+  return rows.slice().sort((a, b) => {
+    const dd = dateNum(b['日付']) - dateNum(a['日付']);
+    if (dd) return dd;
+    const td = (Number(b['作業時間']) || 0) - (Number(a['作業時間']) || 0);
+    if (td) return td;
+    return String(b['案件コード'] || '').localeCompare(String(a['案件コード'] || ''));
+  });
 }
 
 // ---- webview 状態 ---------------------------------------------------------
@@ -142,7 +164,7 @@ async function tryEnter(silent) {
   const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得', true);
   if (r && Array.isArray(r.data)) {
     enterApp();
-    renderTableInto($('listTable'), 'getNippoList', r.data, openEditModal);
+    renderTableInto($('listTable'), 'getNippoList', sortNippoList(r.data), openEditModal);
     // ログイン中の本人を自動セット（初回のみ）。担当者が変わったら一覧を取り直す。
     const changed = await autoSetTantoOnce();
     if (changed) await loadList();
@@ -321,7 +343,7 @@ function renderTableInto(container, endpoint, data, onRowClick) {
 // ---- 日報一覧（メイン画面） ----------------------------------------------
 async function loadList() {
   const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得');
-  if (r && Array.isArray(r.data)) renderTableInto($('listTable'), 'getNippoList', r.data, openEditModal);
+  if (r && Array.isArray(r.data)) renderTableInto($('listTable'), 'getNippoList', sortNippoList(r.data), openEditModal);
 }
 
 // ---- モーダル制御 ---------------------------------------------------------
@@ -331,9 +353,6 @@ function isOpen(id) { return !$(id).classList.contains('hidden'); }
 
 // ③ 行クリック → 修正モードで登録モーダル
 function openEditModal(row) {
-  // 担当者は行データに合わせる（一覧は選択担当者のものだが念のため）
-  if (row['担当者コード']) setVal('tanto', row['担当者コード']);
-  if (row['担当者名']) setVal('tantoName', row['担当者名']);
   setVal('nippoCd', row['日報コード']);
   setVal('date', toInputDate(row['日付']));
   setVal('ankenCd', row['案件コード']);
@@ -344,8 +363,11 @@ function openEditModal(row) {
   setVal('sagyoShinchoku', row['作業進捗'] || '順調');
   setVal('okureHokoku', row['遅れ報告']);
   setVal('sonotaHokoku', row['その他報告事項']);
-  syncRegTanto();
+  // 登録モーダルの担当者は行の担当者（メインのログイン担当者は変更しない）
+  setVal('regTanto', row['担当者コード'] || getVal('tanto'));
+  setVal('regTantoName', row['担当者名'] || getVal('tantoName'));
   updateMode();
+  takeSnapshot(); // 選択された未編集の状態（リセットの復元先）
   openModal('registModal');
   doTotal(); // 開いた日付の合計を自動取得
 }
@@ -356,10 +378,26 @@ function openNewModal() {
   setVal('date', fmtDate(0));
   syncRegTanto();
   updateMode();
+  takeSnapshot(); // 新規のデフォルト表示（リセットの復元先）
   openModal('registModal');
   doTotal(); // 当日の合計を自動取得
 }
 
+// リセット: 登録モーダルを開いた時点の状態を記録／復元する。
+function takeSnapshot() {
+  formSnapshot = {};
+  SNAPSHOT_FIELDS.forEach(f => { formSnapshot[f] = getVal(f); });
+}
+function resetForm() {
+  if (!formSnapshot) return;
+  // regTanto/regTantoName もスナップショットから復元するため syncRegTanto は呼ばない
+  SNAPSHOT_FIELDS.forEach(f => setVal(f, formSnapshot[f]));
+  updateMode();
+  doTotal(); // 復元した日付に応じた合計を再表示
+  toast('入力をリセットしました', 'ok');
+}
+
+// 新規登録の既定担当者＝メインのログイン担当者を登録モーダルへコピーする。
 function syncRegTanto() {
   setVal('regTanto', getVal('tanto'));
   setVal('regTantoName', getVal('tantoName'));
@@ -370,7 +408,8 @@ function setVal(id, v) { const el = $(id); if (el) el.value = v == null ? '' : v
 function getVal(id) { return ($(id)?.value ?? '').toString(); }
 
 function collectForm() {
-  const o = { tanto: getVal('tanto') };
+  // 送信する担当者は登録モーダルの担当者（メインのログイン担当者ではない）
+  const o = { tanto: getVal('regTanto') };
   REG_FIELDS.forEach(f => { o[f] = getVal(f); });
   o.date = toApiDate(getVal('date')); // yyyy-mm-dd → yyyy/m/d
   return o;
@@ -398,13 +437,17 @@ function updateMode() {
 
 // 現行仕様の checkError() 相当
 function checkError() {
-  if (getVal('tanto').trim() === '') return '担当者が未入力です';
+  if (getVal('regTanto').trim() === '') return '担当者が未入力です';
+  if (getVal('ankenCd').trim() === '') return '案件が未入力です';
   if (getVal('date').trim() === '') return '日付が未入力です';
   if (isNaN(new Date(getVal('date')).getDate())) return '日付が不正です';
   if (getVal('sagyoNaiyo').trim() === '') return '作業内容が未入力です';
   if (getVal('sagyozikan').trim() === '') return '作業時間が未入力です';
   if (isNaN(Number(getVal('sagyozikan')))) return '作業時間が不正です';
   if (getVal('sagyoShinchoku').trim() === '') return '作業進捗が未入力です';
+  if (getVal('sonotaHokoku').trim() === '') return 'その他報告事項が未入力です';
+  if (getVal('sagyoShinchoku') !== '順調' && getVal('okureHokoku').trim() === '')
+    return '作業進捗が順調以外の場合は遅れ報告を入力してください';
   return null;
 }
 
@@ -437,8 +480,9 @@ async function doDelete() {
 async function doTotal() {
   $('totalVal').textContent = '-';
   const d = toApiDate(getVal('date'));
-  if (!d) return;
-  const r = await callApi('getTotal', { tanto: getVal('tanto'), date: d }, '合計取得', true);
+  const t = getVal('regTanto') || getVal('tanto');
+  if (!d || !t) return;
+  const r = await callApi('getTotal', { tanto: t, date: d }, '合計取得', true);
   if (r && r.ok) $('totalVal').textContent = (r.data ?? '-');
 }
 
@@ -450,7 +494,9 @@ function openAnkenModal() {
   searchAnken(false); // 初期表示は履歴を実行して表示（検索ボタンは再検索用）
 }
 async function searchAnken(withSvalue) {
-  const body = withSvalue ? { tanto: getVal('tanto'), svalue: getVal('svalue') } : { tanto: getVal('tanto') };
+  // 案件は登録対象の担当者（登録モーダルの担当者）の履歴／検索を出す
+  const t = getVal('regTanto') || getVal('tanto');
+  const body = withSvalue ? { tanto: t, svalue: getVal('svalue') } : { tanto: t };
   const r = await callApi('gethistory', body, withSvalue ? '案件検索' : '案件履歴');
   if (r && Array.isArray(r.data)) renderTableInto($('ankenTable'), 'gethistory', r.data, pickAnken);
 }
@@ -474,13 +520,12 @@ async function searchTantoList() {
   if (r && Array.isArray(r.data)) renderTableInto($('tantoTable'), 'getTantoList', r.data, pickTanto);
 }
 function pickTanto(row) {
-  setVal('tanto', row['key']);
-  setVal('tantoName', row['名称1']);
-  syncRegTanto();
+  // 登録モーダルの担当者のみ変更（メイン＝日報一覧のログイン担当者は変更しない）
+  setVal('regTanto', row['key']);
+  setVal('regTantoName', row['名称1']);
   closeModal('tantoModal');
-  toast('担当者を切り替えました', 'ok');
-  // 登録モーダルを開いていない（＝メインからの担当者切替）ときは一覧を更新
-  if (!isOpen('registModal')) loadList();
+  toast('登録の担当者を変更しました', 'ok');
+  doTotal(); // 変更後の担当者・日付の合計を再取得
 }
 
 // ---- toast ----------------------------------------------------------------
@@ -510,7 +555,7 @@ function wire() {
   $('btnRegist').addEventListener('click', () => doRegist());
   $('btnDelete').addEventListener('click', () => doDelete());
   $('btnCopy').addEventListener('click', () => { setVal('nippoCd', ''); updateMode(); toast('新規モードに切替（内容は保持）', 'ok'); });
-  $('btnClear').addEventListener('click', () => clearForm());
+  $('btnReset').addEventListener('click', () => resetForm());
   // 日付ボタン: 日付を設定して合計を取り直す
   document.querySelectorAll('.date-btn').forEach(btn => {
     btn.addEventListener('click', () => { setVal('date', fmtDate(Number(btn.dataset.days))); doTotal(); });
@@ -519,7 +564,8 @@ function wire() {
   $('date').addEventListener('keydown', (e) => {
     if (e.key !== 'Tab') e.preventDefault();
   });
-  // カレンダーで日付が変わったら合計を取り直す
+  // カレンダーで日付が変わったら合計を取り直す（input/change 両方で確実に拾う）
+  $('date').addEventListener('input', () => doTotal());
   $('date').addEventListener('change', () => doTotal());
   $('btnTantoSearch').addEventListener('click', () => openTantoModal());
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
