@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>日報登録</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">日報登録 <span class="tag">案A / WebView組み込み</span></div>
+    <div class="conn">
+      <span id="connDot" class="dot"></span>
+      <span id="connText">読み込み中…</span>
+      <button id="btnReload" class="ghost" title="rkanriページを再読み込み">↻ 再読込</button>
+      <button id="btnToggleWeb" class="ghost" title="埋め込みブラウザの表示切替">画面表示</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左: 操作パネル -->
+    <section class="panel">
+      <!-- 担当者 -->
+      <fieldset>
+        <legend>担当者</legend>
+        <div class="row">
+          <label>担当者コード</label>
+          <input id="tanto" type="text" value="P-000184" size="12" />
+          <label>担当者名</label>
+          <input id="tantoName" type="text" value="土田歩成" readonly />
+        </div>
+      </fieldset>
+
+      <!-- 日付・合計 -->
+      <fieldset>
+        <legend>日付 / 合計</legend>
+        <div class="row">
+          <label>日付</label>
+          <input id="date" type="text" placeholder="yyyy/m/d" size="12" />
+          <button data-days="-3" class="date-btn">一昨昨日</button>
+          <button data-days="-2" class="date-btn">一昨日</button>
+          <button data-days="-1" class="date-btn">昨日</button>
+          <button data-days="0" class="date-btn">今日</button>
+        </div>
+        <div class="row">
+          <button id="btnGetTotal">合計取得</button>
+          <span class="result-inline">合計: <b id="totalVal">-</b></span>
+          <button id="btnGetList" class="primary">日報一覧取得</button>
+        </div>
+      </fieldset>
+
+      <!-- 登録・更新フォーム -->
+      <fieldset>
+        <legend>日報 登録 / 更新</legend>
+        <div class="row">
+          <label>日報コード</label>
+          <input id="nippoCd" type="text" placeholder="(空=新規)" size="14" />
+          <span id="modeBadge" class="badge new">新規モード</span>
+          <button id="btnCopy" class="ghost" title="日報コードを空にして新規化">コピー</button>
+          <button id="btnClear" class="ghost">クリア</button>
+        </div>
+        <div class="row">
+          <label>案件コード</label>
+          <input id="ankenCd" type="text" readonly size="14" />
+          <label>取引先名</label>
+          <input id="torihikisakiMei" type="text" readonly class="grow" />
+        </div>
+        <div class="row">
+          <label>案件名</label>
+          <input id="ankenMei" type="text" readonly class="grow2" />
+        </div>
+        <div class="row">
+          <label>作業内容</label>
+          <select id="sagyoNaiyo"></select>
+          <label>作業時間</label>
+          <input id="sagyozikan" type="text" size="6" />
+          <label>作業進捗</label>
+          <select id="sagyoShinchoku"></select>
+        </div>
+        <div class="row">
+          <label>遅れ報告</label>
+          <textarea id="okureHokoku" rows="2"></textarea>
+        </div>
+        <div class="row">
+          <label>その他報告</label>
+          <textarea id="sonotaHokoku" rows="2"></textarea>
+        </div>
+        <div class="row actions">
+          <button id="btnRegist" class="primary">登録 / 更新</button>
+          <button id="btnDelete" class="danger">削除</button>
+        </div>
+      </fieldset>
+
+      <!-- マスタ検索 -->
+      <fieldset>
+        <legend>マスタ検索</legend>
+        <div class="row">
+          <label>案件検索</label>
+          <input id="svalue" type="text" placeholder="案件コード/取引先/案件名" class="grow" />
+          <button id="btnAnkenSearch">検索</button>
+          <button id="btnAnkenHistory">履歴</button>
+        </div>
+        <div class="row">
+          <label>担当検索</label>
+          <input id="svalue2" type="text" placeholder="担当者コード/名" class="grow" />
+          <button id="btnTantoSearch">検索</button>
+        </div>
+      </fieldset>
+    </section>
+
+    <!-- 右: 結果表示 + 埋め込みブラウザ -->
+    <section class="output">
+      <div class="output-head">
+        <span id="outLabel">結果</span>
+        <span id="outStatus" class="muted"></span>
+      </div>
+      <div id="tableWrap" class="table-wrap"></div>
+      <details class="json-details">
+        <summary>生レスポンス(JSON)</summary>
+        <pre id="jsonOut" class="json"></pre>
+      </details>
+
+      <div id="webPane" class="web-pane">
+        <div class="web-hint">
+          ↓ 初回はこの画面で対象システムにログインしてください（ログイン後、上の操作が使えます）
+        </div>
+        <webview id="rk" src="https://rkanri.genech.co.jp/kanri/nippo"
+                 partition="persist:rkanri"></webview>
+      </div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
