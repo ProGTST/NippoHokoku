@@ -47,8 +47,13 @@ function fmtDate(offsetDays) {
 // ---- webview 状態 ---------------------------------------------------------
 rk.addEventListener('dom-ready', () => {
   webReady = true;
-  setConn('ok', '接続OK（ページ読込済み）');
   // 対象ページに戻ってきた（＝ログイン完了想定）ら、認証中なら自動でアプリ表示を試行
+  if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
+});
+// 読み込みが本当に止まった時に緑化（SSO は複数回リダイレクトするため did-stop-loading で判定）
+rk.addEventListener('did-stop-loading', () => {
+  webReady = true;
+  setConn('ok', isTargetUrl() ? '接続OK（対象ページ）' : '読込完了（ログイン画面）');
   if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
 });
 rk.addEventListener('did-fail-load', (e) => {

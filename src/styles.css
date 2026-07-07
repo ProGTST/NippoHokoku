@@ -37,6 +37,13 @@ html, body {
   border: 1px solid rgba(255,255,255,.4); border-radius: 10px; padding: 1px 8px; margin-left: 8px;
 }
 .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+/* 紺色ヘッダー上のボタンは白文字＋半透明背景で視認性を確保（ghost の透明を上書き） */
+.topbar button {
+  color: #fff;
+  border-color: rgba(255, 255, 255, .5);
+  background: rgba(255, 255, 255, .12);
+}
+.topbar button:hover { background: rgba(255, 255, 255, .24); }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); display: inline-block; }
 .dot.ok { background: var(--ok); }
 .dot.ng { background: var(--danger); }
