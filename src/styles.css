@@ -164,6 +164,12 @@ th {
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: #eaf2ff; }
 td.num { text-align: right; }
+th.chk, td.chk { width: 34px; text-align: center; cursor: default; }
+th.chk input, td.chk input { cursor: pointer; }
+
+.frow > label.radio { min-width: 0; text-align: left; color: var(--text); }
+.range-to { display: inline-flex; align-items: center; gap: 6px; }
+.range-to.hidden { display: none; }
 
 .json-details { margin: 4px 0; }
 .json-details summary { cursor: pointer; color: var(--muted); font-size: 12px; }

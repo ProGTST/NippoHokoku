@@ -39,6 +39,8 @@
       <button id="btnGetList">↻ 一覧更新</button>
       <span class="spacer"></span>
       <button id="btnNew" class="primary">＋ 新規登録</button>
+      <button id="btnBulkCopy" class="ok">一括コピー</button>
+      <button id="btnBulkDelete" class="danger">一括削除</button>
     </div>
     <div id="listTable" class="table-wrap grow-table"></div>
     <div class="status-bar">
@@ -146,6 +148,35 @@
           <button id="btnTantoDoSearch" class="primary">検索</button>
         </div>
         <div id="tantoTable" class="table-wrap modal-table"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 一括コピー モーダル -->
+  <div id="bulkCopyModal" class="modal-overlay hidden" data-close="bulkCopyModal">
+    <div class="modal modal-narrow">
+      <div class="modal-head">
+        <span class="modal-title">一括コピー</span>
+        <span class="modal-sub">選択: <b id="bulkCount">0</b> 件</span>
+        <button id="btnCloseBulkCopy" class="ghost" title="閉じる">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="frow">
+          <label>日付種別</label>
+          <label class="radio"><input type="radio" name="bulkDateMode" value="single" checked /> 単一</label>
+          <label class="radio"><input type="radio" name="bulkDateMode" value="range" /> 範囲</label>
+        </div>
+        <div class="frow">
+          <label>日付</label>
+          <input id="bulkDateFrom" type="date" class="w-field" />
+          <span id="bulkDateToWrap" class="range-to hidden">〜 <input id="bulkDateTo" type="date" class="w-field" /></span>
+        </div>
+        <div class="frow muted">
+          選択した日報を、指定日（範囲の場合は各日）に新規登録します。
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="btnBulkCopyExec" class="primary">コピー実行</button>
       </div>
     </div>
   </div>

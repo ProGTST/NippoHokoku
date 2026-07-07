@@ -34,6 +34,8 @@ const rk = $('rk');               // <webview>
 let webReady = false;
 let tantoAutoDone = false;        // 本人自動セット（初回のみ）
 let formSnapshot = null;          // 登録モーダルを開いた時点の値（リセット用）
+let currentNippoList = [];        // 現在表示中の日報一覧（一括操作用）
+const selectedNippo = new Set();  // 選択中の日報コード（一括操作用）
 
 // rkanri ページ内から、ログイン中ユーザーの担当者コード（P-XXXXXX）を拾う。
 // 対象ページは担当者コードを input に保持しているため、その値を読む。
@@ -164,7 +166,7 @@ async function tryEnter(silent) {
   const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得', true);
   if (r && Array.isArray(r.data)) {
     enterApp();
-    renderTableInto($('listTable'), 'getNippoList', sortNippoList(r.data), openEditModal);
+    showNippoList(r.data);
     // ログイン中の本人を自動セット（初回のみ）。担当者が変わったら一覧を取り直す。
     const changed = await autoSetTantoOnce();
     if (changed) await loadList();
@@ -302,7 +304,8 @@ async function callApi(endpoint, body, label, silent) {
 }
 
 // ---- テーブル描画（任意コンテナ + 行クリックコールバック） ----------------
-function renderTableInto(container, endpoint, data, onRowClick) {
+// selectable=true で先頭にチェックボックス列（選択列）を追加（日報一覧用）。
+function renderTableInto(container, endpoint, data, onRowClick, selectable) {
   // 非配列応答（スカラー/オブジェクト）は一覧ではないため既存表示を維持
   if (!Array.isArray(data)) return;
   container.innerHTML = '';
@@ -319,6 +322,22 @@ function renderTableInto(container, endpoint, data, onRowClick) {
   const table = document.createElement('table');
   const thead = document.createElement('thead');
   const htr = document.createElement('tr');
+  if (selectable) {
+    const th = document.createElement('th');
+    th.className = 'chk';
+    const all = document.createElement('input');
+    all.type = 'checkbox';
+    all.title = '全選択';
+    all.addEventListener('change', () => {
+      data.forEach(r => {
+        const k = r['日報コード'];
+        if (all.checked) selectedNippo.add(k); else selectedNippo.delete(k);
+      });
+      container.querySelectorAll('tbody input[type=checkbox]').forEach(cb => { cb.checked = all.checked; });
+    });
+    th.appendChild(all);
+    htr.appendChild(th);
+  }
   cols.forEach(c => { const th = document.createElement('th'); th.textContent = labels[c] || c; htr.appendChild(th); });
   thead.appendChild(htr);
   table.appendChild(thead);
@@ -326,6 +345,19 @@ function renderTableInto(container, endpoint, data, onRowClick) {
   const tbody = document.createElement('tbody');
   data.forEach(rowObj => {
     const tr = document.createElement('tr');
+    if (selectable) {
+      const td = document.createElement('td');
+      td.className = 'chk';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      const key = rowObj['日報コード'];
+      cb.checked = selectedNippo.has(key);
+      cb.addEventListener('change', () => { if (cb.checked) selectedNippo.add(key); else selectedNippo.delete(key); });
+      // チェック操作で行クリック（編集）を発火させない
+      td.addEventListener('click', (e) => e.stopPropagation());
+      td.appendChild(cb);
+      tr.appendChild(td);
+    }
     cols.forEach(c => {
       const td = document.createElement('td');
       const v = rowObj[c];
@@ -341,9 +373,18 @@ function renderTableInto(container, endpoint, data, onRowClick) {
 }
 
 // ---- 日報一覧（メイン画面） ----------------------------------------------
+function showNippoList(rows) {
+  currentNippoList = sortNippoList(rows);
+  selectedNippo.clear(); // 再取得時は選択をリセット
+  renderTableInto($('listTable'), 'getNippoList', currentNippoList, openEditModal, true);
+}
 async function loadList() {
   const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得');
-  if (r && Array.isArray(r.data)) renderTableInto($('listTable'), 'getNippoList', sortNippoList(r.data), openEditModal);
+  if (r && Array.isArray(r.data)) showNippoList(r.data);
+}
+// 選択中の日報（行データ）を返す。
+function selectedRows() {
+  return currentNippoList.filter(r => selectedNippo.has(r['日報コード']));
 }
 
 // ---- モーダル制御 ---------------------------------------------------------
@@ -488,6 +529,89 @@ async function doTotal() {
   if (r && r.ok) $('totalVal').textContent = (r.data ?? '-');
 }
 
+// ---- 一括コピー / 一括削除 -----------------------------------------------
+// yyyy-mm-dd の開始〜終了（両端含む）を API 形式 yyyy/m/d の配列で返す。
+function dateRange(fromIso, toIso) {
+  const out = [];
+  const s = new Date(fromIso + 'T00:00:00');
+  const e = new Date(toIso + 'T00:00:00');
+  if (isNaN(s.getTime()) || isNaN(e.getTime()) || e < s) return out;
+  const d = new Date(s);
+  while (d <= e) {
+    out.push(`${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`);
+    d.setDate(d.getDate() + 1);
+    if (out.length > 400) break; // 安全弁
+  }
+  return out;
+}
+
+function openBulkCopy() {
+  if (!selectedRows().length) { toast('対象の日報を選択してください', 'ng'); return; }
+  $('bulkCount').textContent = String(selectedRows().length);
+  document.querySelector('input[name=bulkDateMode][value=single]').checked = true;
+  $('bulkDateToWrap').classList.add('hidden');
+  setVal('bulkDateFrom', fmtDate(0));
+  setVal('bulkDateTo', fmtDate(0));
+  openModal('bulkCopyModal');
+}
+
+async function doBulkCopy() {
+  const rows = selectedRows();
+  if (!rows.length) { toast('対象の日報を選択してください', 'ng'); return; }
+  const mode = document.querySelector('input[name=bulkDateMode]:checked').value;
+  const fromIso = getVal('bulkDateFrom');
+  if (!fromIso) { toast('日付を指定してください', 'ng'); return; }
+  let dates;
+  if (mode === 'range') {
+    const toIso = getVal('bulkDateTo');
+    if (!toIso) { toast('終了日を指定してください', 'ng'); return; }
+    dates = dateRange(fromIso, toIso);
+    if (!dates.length) { toast('日付範囲が不正です（開始≦終了）', 'ng'); return; }
+    if (dates.length > 366) { toast('範囲が広すぎます（最大366日）', 'ng'); return; }
+  } else {
+    dates = [toApiDate(fromIso)];
+  }
+  const total = rows.length * dates.length;
+  if (!confirm(`選択 ${rows.length} 件 × ${dates.length} 日 = ${total} 件を新規登録します。よろしいですか？`)) return;
+
+  let ok = 0, ng = 0;
+  for (const r of rows) {
+    for (const d of dates) {
+      const body = {
+        nippoCd: '',
+        tanto: r['担当者コード'] || getVal('tanto'),
+        date: d,
+        ankenCd: r['案件コード'] || '',
+        torihikisakiMei: r['取引先名'] || '',
+        ankenMei: r['案件名'] || '',
+        sagyoNaiyo: r['作業内容'] || '',
+        sagyozikan: r['作業時間'] || '',
+        sagyoShinchoku: r['作業進捗'] || '順調',
+        okureHokoku: r['遅れ報告'] || '',
+        sonotaHokoku: r['その他報告事項'] || ''
+      };
+      const res = await callApi('registData', body, '一括コピー', true);
+      if (isBizOk(res)) ok++; else ng++;
+    }
+  }
+  closeModal('bulkCopyModal');
+  toast(`一括コピー: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}`, ng ? 'ng' : 'ok');
+  await loadList();
+}
+
+async function doBulkDelete() {
+  const rows = selectedRows();
+  if (!rows.length) { toast('対象の日報を選択してください', 'ng'); return; }
+  if (!confirm(`選択した ${rows.length} 件を削除します。元に戻せませんのでご注意を`)) return;
+  let ok = 0, ng = 0;
+  for (const r of rows) {
+    const res = await callApi('deleteData', { nippoCd: r['日報コード'] }, '一括削除', true);
+    if (isBizOk(res)) ok++; else ng++;
+  }
+  toast(`一括削除: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}`, ng ? 'ng' : 'ok');
+  await loadList();
+}
+
 // ---- ⑤ 案件マスタ検索モーダル --------------------------------------------
 function openAnkenModal() {
   setVal('svalue', '');
@@ -551,6 +675,22 @@ function wire() {
   $('btnReauth').addEventListener('click', () => reauth());
   $('btnGetList').addEventListener('click', () => loadList());
   $('btnNew').addEventListener('click', () => openNewModal());
+  $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
+  $('btnBulkDelete').addEventListener('click', () => doBulkDelete());
+
+  // 一括コピー モーダル
+  $('btnCloseBulkCopy').addEventListener('click', () => closeModal('bulkCopyModal'));
+  $('btnBulkCopyExec').addEventListener('click', () => doBulkCopy());
+  document.querySelectorAll('input[name=bulkDateMode]').forEach(rb => {
+    rb.addEventListener('change', () => {
+      const range = document.querySelector('input[name=bulkDateMode]:checked').value === 'range';
+      $('bulkDateToWrap').classList.toggle('hidden', !range);
+    });
+  });
+  // 一括コピーの日付もカレンダー入力のみ
+  ['bulkDateFrom', 'bulkDateTo'].forEach(id => {
+    $(id).addEventListener('keydown', (e) => { if (e.key !== 'Tab') e.preventDefault(); });
+  });
 
   // 登録モーダル
   $('btnCloseRegist').addEventListener('click', () => closeModal('registModal'));
