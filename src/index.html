@@ -51,7 +51,7 @@
           title="担当者コード（検索から選択）"
         />
         <input id="tantoName" type="text" value="土田歩成" readonly />
-        <button id="btnTantoSearchMain" title="担当者マスタ検索">検索</button>
+        <button id="btnTantoChange" title="担当者を変更">担当変更</button>
         <button id="btnGetList">↻ 一覧更新</button>
         <span class="spacer"></span>
         <button id="btnNew" class="primary">＋ 新規登録</button>
@@ -93,7 +93,6 @@
             <label>担当者</label>
             <input id="regTanto" type="text" readonly class="w-field" />
             <input id="regTantoName" type="text" readonly class="grow" />
-            <button id="btnTantoSearch" title="担当者マスタ検索">検索</button>
           </div>
           <div class="frow">
             <label>案件コード</label>
@@ -171,6 +170,28 @@
             <button id="btnTantoDoSearch" class="primary">検索</button>
           </div>
           <div id="tantoTable" class="table-wrap modal-table"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 担当変更の参照許可確認モーダル -->
+    <div id="permModal" class="modal-overlay hidden" data-close="permModal">
+      <div class="modal modal-narrow">
+        <div class="modal-head">
+          <span class="modal-title">担当変更</span>
+          <button id="btnClosePerm" class="ghost" title="閉じる">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="permMsg" class="frow perm-msg">事前に参照の許可を得ていますか？</div>
+          <div class="muted perm-note">
+            全権許可: 閲覧に加え、登録・更新・削除まで可能<br />
+            参照のみ: 閲覧（詳細確認）のみで編集不可
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button id="btnPermFull" class="primary">全権許可</button>
+          <button id="btnPermView" class="ok">参照のみ</button>
         </div>
       </div>
     </div>

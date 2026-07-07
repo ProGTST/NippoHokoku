@@ -75,7 +75,8 @@ const rk = $('rk'); // <webview>
 let webReady = false;
 let tantoAutoDone = false; // 本人自動セット（初回のみ）
 let formSnapshot = null; // 登録モーダルを開いた時点の値（リセット用）
-let tantoPickTarget = 'reg'; // 担当者モーダルで選択した担当者の設定先（'main'=日報一覧 / 'reg'=登録モーダル）
+let viewOnly = false; // 参照のみモード（他担当者を参照許可のみで閲覧。編集系 UI を隠す）
+let pendingTantoRow = null; // 担当変更で選択中の担当者行（許可確認モーダルで確定/中断する）
 let loginTanto = null; // ログイン担当者（本人自動セットの結果。再読込でここへ戻す）
 let pendingListReload = false; // webview 再読込の完了後、アプリ画面で一覧を取り直すフラグ
 let currentNippoList = []; // 現在表示中の日報一覧（一括操作用）
@@ -204,6 +205,7 @@ function showAuth() {
 }
 function enterApp() {
   document.body.className = 'app';
+  applyViewOnly(false); // ログイン直後は全権（参照のみ解除）
   hideMask();
   updateHeaderTitle();
 }
@@ -511,6 +513,10 @@ function openEditModal(row) {
 
 // ④ 登録ボタン → 新規モードで登録モーダル
 function openNewModal() {
+  if (viewOnly) {
+    toast('参照のみモードでは新規登録できません', 'ng');
+    return;
+  }
   clearForm();
   setVal('date', fmtDate(0));
   syncRegTanto();
@@ -539,6 +545,7 @@ function resetForm() {
 // 日報一覧の担当者をログイン担当者（本人自動セットの結果）へ戻す。
 // 未確定（自動セット前）なら HTML の初期値のまま。戻り値: 実際に変わったら true。
 function restoreLoginTanto() {
+  applyViewOnly(false); // ログイン担当者に戻る＝全権（参照のみを解除）
   if (!loginTanto) return false;
   const changed = getVal('tanto') !== loginTanto.code;
   setVal('tanto', loginTanto.code);
@@ -589,10 +596,16 @@ function clearForm() {
 function updateMode() {
   const isEdit = getVal('nippoCd').trim() !== '';
   const badge = $('modeBadge');
-  badge.textContent = isEdit ? '編集モード' : '新規モード';
-  badge.className = 'badge ' + (isEdit ? 'edit' : 'new');
+  // 参照のみモードで既存日報を開いた場合は「参照モード」（編集不可）
+  if (viewOnly && isEdit) {
+    badge.textContent = '参照モード';
+    badge.className = 'badge view';
+  } else {
+    badge.textContent = isEdit ? '編集モード' : '新規モード';
+    badge.className = 'badge ' + (isEdit ? 'edit' : 'new');
+  }
   $('nippoCdView').textContent = isEdit ? getVal('nippoCd') : '新規登録';
-  // コピーは編集モードのみ表示
+  // コピーは編集モードのみ表示（参照のみモードでは CSS で非表示）
   $('btnCopy').style.display = isEdit ? '' : 'none';
 }
 
@@ -614,6 +627,10 @@ function checkError() {
 
 // ---- 登録 / 更新 / 削除 ---------------------------------------------------
 async function doRegist() {
+  if (viewOnly) {
+    toast('参照のみモードでは登録・更新できません', 'ng');
+    return;
+  }
   const err = checkError();
   if (err) {
     toast(err, 'ng');
@@ -630,6 +647,10 @@ async function doRegist() {
 }
 
 async function doDelete() {
+  if (viewOnly) {
+    toast('参照のみモードでは削除できません', 'ng');
+    return;
+  }
   if (getVal('nippoCd').trim() === '') {
     toast('日報コードが空です（削除対象なし）', 'ng');
     return;
@@ -670,6 +691,10 @@ function dateRange(fromIso, toIso) {
 }
 
 function openBulkCopy() {
+  if (viewOnly) {
+    toast('参照のみモードでは一括コピーできません', 'ng');
+    return;
+  }
   if (!selectedRows().length) {
     toast('対象の日報を選択してください', 'ng');
     return;
@@ -749,6 +774,10 @@ async function doBulkCopy() {
 }
 
 async function doBulkDelete() {
+  if (viewOnly) {
+    toast('参照のみモードでは一括削除できません', 'ng');
+    return;
+  }
   const rows = selectedRows();
   if (!rows.length) {
     toast('対象の日報を選択してください', 'ng');
@@ -788,10 +817,9 @@ function pickAnken(row) {
   toast('案件を反映しました', 'ok');
 }
 
-// ---- ⑥ 担当者マスタ検索モーダル ------------------------------------------
-// target: 'main'=日報一覧の担当者を設定 / 'reg'（既定）=登録モーダルの担当者を設定
-function openTantoModal(target) {
-  tantoPickTarget = target === 'main' ? 'main' : 'reg';
+// ---- ⑥ 担当者マスタ検索モーダル（日報一覧の担当変更用） -------------------
+// 登録モーダルからの担当者変更は廃止（①）。担当者マスタ一覧は「担当変更」からのみ開く。
+function openTantoModal() {
   setVal('svalue2', '');
   openModal('tantoModal');
   $('svalue2').focus();
@@ -803,21 +831,48 @@ async function searchTantoList() {
     renderTableInto($('tantoTable'), 'getTantoList', r.data, pickTanto);
 }
 function pickTanto(row) {
-  if (tantoPickTarget === 'main') {
-    // メイン（日報一覧）の担当者を変更して一覧を取り直す
-    setVal('tanto', row['key']);
-    setVal('tantoName', row['名称1']);
-    closeModal('tantoModal');
-    toast('担当者を変更しました', 'ok');
-    loadList();
+  closeModal('tantoModal');
+  // ログイン担当者と同じなら確認不要で、そのまま全権で変更
+  if (loginTanto && row['key'] === loginTanto.code) {
+    applyTantoChange(row, false);
     return;
   }
-  // 登録モーダルの担当者のみ変更（メイン＝日報一覧の担当者は変更しない）
-  setVal('regTanto', row['key']);
-  setVal('regTantoName', row['名称1']);
-  closeModal('tantoModal');
-  toast('登録の担当者を変更しました', 'ok');
-  doTotal(); // 変更後の担当者・日付の合計を再取得
+  // 他担当者は参照許可の確認（全権/参照のみ/キャンセル）を経て確定する
+  pendingTantoRow = row;
+  openPermModal();
+}
+
+// ---- 担当変更（担当者マスタ一覧 → 参照許可の確認） ------------------------
+// 日報一覧の担当者を変更し、権限モード（view=参照のみ）を反映して一覧を取り直す。
+function applyTantoChange(row, view) {
+  setVal('tanto', row['key']);
+  setVal('tantoName', row['名称1']);
+  applyViewOnly(view);
+  toast(view ? '参照のみで担当者を変更しました' : '担当者を変更しました', 'ok');
+  loadList();
+}
+function openPermModal() {
+  // 選択した担当者名を確認メッセージへ差し込む（「[担当者名]さんから、…」）
+  const name = (pendingTantoRow && pendingTantoRow['名称1']) || '';
+  $('permMsg').textContent = `${name}さんから、事前に参照の許可を得ていますか？`;
+  openModal('permModal');
+}
+// 許可確認モーダルで [全権許可]/[参照のみ] を選んだ → 担当者変更を確定。
+function confirmPerm(view) {
+  const row = pendingTantoRow;
+  pendingTantoRow = null;
+  closeModal('permModal');
+  if (row) applyTantoChange(row, view);
+}
+// キャンセル/✕/背景クリック → 担当変更を中断（担当者は変更しない）。
+function cancelPerm() {
+  pendingTantoRow = null;
+  closeModal('permModal');
+}
+// 参照のみモードの ON/OFF を UI（body クラス）へ反映する。
+function applyViewOnly(on) {
+  viewOnly = !!on;
+  document.body.classList.toggle('view-only', viewOnly);
 }
 
 // ---- toast ----------------------------------------------------------------
@@ -851,7 +906,7 @@ function wire() {
 
   // メイン画面
   $('btnReauth').addEventListener('click', () => reauth());
-  $('btnTantoSearchMain').addEventListener('click', () => openTantoModal('main'));
+  $('btnTantoChange').addEventListener('click', () => openTantoModal());
   $('btnGetList').addEventListener('click', () => loadList());
   $('btnNew').addEventListener('click', () => openNewModal());
   $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
@@ -907,7 +962,6 @@ function wire() {
   // カレンダーで日付が変わったら合計を取り直す（input/change 両方で確実に拾う）
   $('date').addEventListener('input', () => doTotal());
   $('date').addEventListener('change', () => doTotal());
-  $('btnTantoSearch').addEventListener('click', () => openTantoModal('reg'));
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
 
   // 案件モーダル
@@ -918,6 +972,11 @@ function wire() {
   // 担当者モーダル
   $('btnTantoDoSearch').addEventListener('click', () => searchTantoList());
   $('btnCloseTanto').addEventListener('click', () => closeModal('tantoModal'));
+
+  // 担当変更の参照許可確認モーダル（担当者選択後に表示）
+  $('btnClosePerm').addEventListener('click', () => cancelPerm()); // ✕ で中断
+  $('btnPermFull').addEventListener('click', () => confirmPerm(false)); // 全権許可
+  $('btnPermView').addEventListener('click', () => confirmPerm(true)); // 参照のみ
 
   // オーバーレイ背景クリックで閉じる（モーダル本体クリックは無視）
   qsa('.modal-overlay').forEach((ov) => {

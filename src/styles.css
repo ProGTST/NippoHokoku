@@ -264,6 +264,30 @@ button.date-btn {
   background: #fff0d9;
   color: var(--warn);
 }
+.badge.view {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+
+/* 参照のみモード: 編集系の UI を隠す（選択列・新規/一括・登録フッター） */
+body.view-only .chk,
+body.view-only #btnNew,
+body.view-only #btnBulkCopy,
+body.view-only #btnBulkDelete,
+body.view-only #btnRegist,
+body.view-only #btnDelete,
+body.view-only #btnCopy,
+body.view-only #btnReset {
+  display: none !important;
+}
+
+.perm-msg {
+  font-weight: 600;
+}
+.perm-note {
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
 
 .result-inline {
   color: var(--muted);
