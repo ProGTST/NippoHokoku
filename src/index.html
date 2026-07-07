@@ -60,11 +60,17 @@
       </div>
       <div id="listTable" class="table-wrap grow-table"></div>
       <div class="status-bar">
-        <span id="outStatus" class="muted"></span>
-        <details class="json-details">
-          <summary>生レスポンス(JSON)</summary>
-          <pre id="jsonOut" class="json"></pre>
-        </details>
+        <div class="status-main">
+          <span id="outStatus" class="muted"></span>
+          <details class="json-details">
+            <summary>生レスポンス(JSON)</summary>
+            <pre id="jsonOut" class="json"></pre>
+          </details>
+        </div>
+        <button id="btnUpdate" class="update-btn hidden" title="新しいバージョンに更新">
+          ⬆ 更新
+        </button>
+        <span id="verLabel" class="ver-label" title="現在のバージョン"></span>
       </div>
     </main>
 

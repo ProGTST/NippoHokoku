@@ -8,12 +8,16 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "dist": "electron-builder --win portable",
-    "dist:nsis": "electron-builder --win nsis"
+    "dist": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable",
+    "publish": "electron-builder --win nsis --publish always"
   },
   "author": "",
   "license": "UNLICENSED",
   "private": true,
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
@@ -32,11 +36,22 @@
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        "portable"
+        "nsis"
       ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "日報入力-Setup-${version}.exe",
+      "shortcutName": "日報入力"
     },
     "portable": {
       "artifactName": "日報入力-${version}.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ProGTST",
+      "repo": "NippoHokoku"
     },
     "directories": {
       "output": "dist"

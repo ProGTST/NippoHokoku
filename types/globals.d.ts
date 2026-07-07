@@ -10,6 +10,23 @@ declare global {
     };
     appApi: {
       clearSession: () => Promise<boolean>;
+      checkUpdate: () => Promise<{
+        available: boolean;
+        current: string;
+        version?: string;
+        dev?: boolean;
+        error?: string;
+      }>;
+      startUpdate: () => Promise<boolean>;
+      quitAndInstall: () => Promise<void>;
+      onUpdateStatus: (
+        cb: (data: {
+          state: 'available' | 'none' | 'downloading' | 'downloaded' | 'error';
+          version?: string;
+          percent?: number;
+          message?: string;
+        }) => void
+      ) => () => void;
     };
   }
 }

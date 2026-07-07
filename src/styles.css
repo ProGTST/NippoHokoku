@@ -163,10 +163,45 @@ body.app .main-view {
 
 .status-bar {
   font-size: 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.status-main {
+  flex: 1;
+  min-width: 0;
 }
 .status-bar .muted {
   display: block;
   margin-bottom: 4px;
+}
+/* 日報一覧 右下の更新ボタン（更新有り時のみ表示） */
+.update-btn {
+  flex: none;
+  background: #16a34a;
+  color: #fff;
+  border-color: #16a34a;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.update-btn:hover {
+  background: #15803d;
+  border-color: #15803d;
+}
+.update-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.update-btn.hidden {
+  display: none;
+}
+/* 現在のバージョン表示（フッター右端。更新ボタンの右に並ぶ） */
+.ver-label {
+  flex: none;
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 /* ---- 汎用フォーム部品 ---- */

@@ -208,6 +208,7 @@ function enterApp() {
   applyViewOnly(false); // ログイン直後は全権（参照のみ解除）
   hideMask();
   updateHeaderTitle();
+  checkForUpdate(); // 日報一覧の初期表示時に更新有無をチェック
 }
 
 // ヘッダーのタイトルは「ログイン」か「日報一覧」の2パターンのみ。
@@ -875,6 +876,100 @@ function applyViewOnly(on) {
   document.body.classList.toggle('view-only', viewOnly);
 }
 
+// ---- 自動更新（GitHub Releases / electron-updater） -----------------------
+let updateBusy = false; // ダウンロード〜再起動の進行中フラグ
+
+// フッターに現在のバージョンを表示する（更新ボタンの右）。
+function setVersionLabel(v) {
+  const el = $('verLabel');
+  if (el && v) el.textContent = 'v' + v;
+}
+
+// 日報一覧の初期表示時に更新有無をチェックし、更新ボタンの表示を切り替える。
+// 最新と一致（または開発時・チェック失敗）ならボタンは非表示。
+// 更新ありなら確認メッセージを表示し、OK で即更新／キャンセルでボタンを残してそのまま利用可能。
+async function checkForUpdate() {
+  if (updateBusy) return; // ダウンロード中は再チェックしない
+  if (!window.appApi || !window.appApi.checkUpdate) return;
+  const btn = $('btnUpdate');
+  let r;
+  try {
+    r = await window.appApi.checkUpdate();
+  } catch (e) {
+    btn.classList.add('hidden'); // 失敗時はボタンを出さない
+    return;
+  }
+  if (r && r.current) setVersionLabel(r.current); // 実バージョンで確定表示
+  if (!r || !r.available) {
+    btn.classList.add('hidden');
+    return;
+  }
+  // 更新あり: ボタンを常設（任意のタイミングで更新可能）
+  btn.title = `新しいバージョン ${r.version || ''} が利用可能です（現在 ${r.current}）`;
+  btn.classList.remove('hidden');
+  // 初期表示時に更新を促す。キャンセルならボタンを残してそのまま利用継続。
+  // （confirm はネイティブダイアログのため改行は \n。HTML タグ </br> は使えない）
+  if (
+    confirm(
+      `最新のバージョン ${r.version || ''} がアップロードされています。\n最新のバージョンにアップデートしますか？`
+    )
+  ) {
+    startUpdateFlow();
+  }
+}
+
+// 更新ボタン押下 → 確認後に更新（任意のタイミング）。
+async function doUpdate() {
+  if (updateBusy) return;
+  if (
+    !confirm('最新バージョンに更新します。ダウンロード後にアプリを再起動します。よろしいですか？')
+  )
+    return;
+  startUpdateFlow();
+}
+
+// 最新版のダウンロードを開始する（完了後は update-downloaded で再起動して適用）。
+async function startUpdateFlow() {
+  if (updateBusy || !window.appApi || !window.appApi.startUpdate) return;
+  updateBusy = true;
+  const btn = $('btnUpdate');
+  btn.classList.remove('hidden');
+  btn.disabled = true;
+  btn.textContent = '⬆ 更新中…';
+  toast('更新をダウンロードしています…', 'ok');
+  try {
+    await window.appApi.startUpdate();
+  } catch (e) {
+    toast('更新の開始に失敗しました: ' + ((e && e.message) || e), 'ng');
+    resetUpdateBtn();
+  }
+}
+
+function resetUpdateBtn() {
+  updateBusy = false;
+  const btn = $('btnUpdate');
+  btn.disabled = false;
+  btn.textContent = '⬆ 更新';
+}
+
+// メインプロセスからの更新状態通知を購読して UI へ反映する（起動時に一度だけ配線）。
+function wireUpdateStatus() {
+  if (!window.appApi || !window.appApi.onUpdateStatus) return;
+  window.appApi.onUpdateStatus((s) => {
+    if (!s) return;
+    const btn = $('btnUpdate');
+    if (s.state === 'downloading') {
+      btn.textContent = `⬆ ${Math.round(s.percent || 0)}%`;
+    } else if (s.state === 'downloaded') {
+      toast('ダウンロード完了。再起動して更新します。', 'ok');
+      window.appApi.quitAndInstall();
+    } else if (s.state === 'error') {
+      toast('更新エラー: ' + (s.message || ''), 'ng');
+      resetUpdateBtn();
+    }
+  });
+}
+
 // ---- toast ----------------------------------------------------------------
 let toastTimer = null;
 function toast(msg, kind) {
@@ -908,6 +1003,7 @@ function wire() {
   $('btnReauth').addEventListener('click', () => reauth());
   $('btnTantoChange').addEventListener('click', () => openTantoModal());
   $('btnGetList').addEventListener('click', () => loadList());
+  $('btnUpdate').addEventListener('click', () => doUpdate());
   $('btnNew').addEventListener('click', () => openNewModal());
   $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
   $('btnBulkDelete').addEventListener('click', () => doBulkDelete());
@@ -984,6 +1080,9 @@ function wire() {
       if (e.target === ov) closeModal(ov.id);
     });
   });
+
+  // 自動更新の状態通知を購読
+  wireUpdateStatus();
 }
 
 // ⑥ 再認証: webview セッションを消去し、Microsoft SSO のログイン画面から入り直す。
@@ -1003,5 +1102,7 @@ async function reauth() {
 initSelects();
 wire();
 showAuth();
+// フッターの現在バージョン初期表示（確定値は checkForUpdate の r.current で上書き）
+if (window.appInfo) setVersionLabel(window.appInfo.version);
 // ログイン担当者の初期値（本人自動セット前の既定。autoSetTantoOnce が確定次第上書き）
 loginTanto = { code: getVal('tanto'), name: getVal('tantoName') };
