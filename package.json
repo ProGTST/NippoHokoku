@@ -5,6 +5,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
     "pack": "electron-packager . NippoHokoku --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"^/dist\" --ignore=\"^/\\.git\"",
     "dist": "electron-builder --win portable",
     "dist:nsis": "electron-builder --win nsis"
@@ -15,7 +18,9 @@
   "devDependencies": {
     "@electron/packager": "^20.0.2",
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "prettier": "^3.9.4",
+    "typescript": "^5.9.3"
   },
   "build": {
     "appId": "jp.co.genech.nippo.desktop",

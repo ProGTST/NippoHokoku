@@ -119,14 +119,14 @@
 
 ### 主なエンドポイント
 
-| 用途 | エンドポイント | 主な送信データ |
-|---|---|---|
-| 日報一覧取得 | `/kanri/nippo/getNippoList` | `tanto` |
-| 新規登録 / 更新 | `/kanri/nippo/registData` | `nippoCd`（空=新規 / 値あり=更新）ほかフォーム全項目 |
-| 削除 | `/kanri/nippo/deleteData` | `nippoCd` |
-| 合計作業時間取得 | `/kanri/nippo/getTotal` | `tanto`, `date` |
-| 案件一覧 / 履歴取得 | `/kanri/nippo/gethistory` | `tanto`, `svalue`(任意) |
-| 担当者一覧取得 | `/kanri/nippo/getTantoList` | `svalue`(任意) |
+| 用途                | エンドポイント              | 主な送信データ                                       |
+| ------------------- | --------------------------- | ---------------------------------------------------- |
+| 日報一覧取得        | `/kanri/nippo/getNippoList` | `tanto`                                              |
+| 新規登録 / 更新     | `/kanri/nippo/registData`   | `nippoCd`（空=新規 / 値あり=更新）ほかフォーム全項目 |
+| 削除                | `/kanri/nippo/deleteData`   | `nippoCd`                                            |
+| 合計作業時間取得    | `/kanri/nippo/getTotal`     | `tanto`, `date`                                      |
+| 案件一覧 / 履歴取得 | `/kanri/nippo/gethistory`   | `tanto`, `svalue`(任意)                              |
+| 担当者一覧取得      | `/kanri/nippo/getTantoList` | `svalue`(任意)                                       |
 
 ### 登録・更新の送信項目
 

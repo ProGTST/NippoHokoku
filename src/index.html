@@ -1,193 +1,218 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
-  <title>日報入力</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body class="auth">
-  <header class="topbar">
-    <div class="brand" id="pageTitle">ログイン</div>
-    <div class="conn">
-      <span id="connDot" class="dot"></span>
-      <span id="connText">認証待ち…</span>
-      <button id="btnReload" class="ghost" title="rkanriページを再読み込み">↻ 再読込</button>
-      <button id="btnReauth" class="ghost" title="セッションを消去してログインし直す">再認証</button>
-    </div>
-  </header>
-
-  <!-- ① 認証画面（webview は常時 DOM 上に保持し、アプリ画面ではオフスクリーンに退避） -->
-  <section id="webHost" class="web-host">
-    <div class="web-hint">
-      対象システム（Microsoft SSO）にログインしてください。ログイン完了後、「ログインを確認してアプリを開く」を押してください。
-    </div>
-    <webview id="rk" src="https://rkanri.genech.co.jp/kanri/nippo"
-             partition="persist:rkanri"></webview>
-    <div class="auth-actions">
-      <button id="btnEnterApp" class="primary">ログインを確認してアプリを開く</button>
-    </div>
-  </section>
-
-  <!-- ② 認証後メイン画面：日報一覧テーブル + 登録ボタン -->
-  <main id="mainView" class="main-view">
-    <div class="main-toolbar">
-      <label>担当者</label>
-      <input id="tanto" type="text" value="P-000184" size="12" title="担当者コード（変更後、一覧更新）" />
-      <input id="tantoName" type="text" value="土田歩成" readonly />
-      <button id="btnGetList">↻ 一覧更新</button>
-      <span class="spacer"></span>
-      <button id="btnNew" class="primary">＋ 新規登録</button>
-      <button id="btnBulkCopy" class="ok">一括コピー</button>
-      <button id="btnBulkDelete" class="danger">一括削除</button>
-    </div>
-    <div id="listTable" class="table-wrap grow-table"></div>
-    <div class="status-bar">
-      <span id="outStatus" class="muted"></span>
-      <details class="json-details">
-        <summary>生レスポンス(JSON)</summary>
-        <pre id="jsonOut" class="json"></pre>
-      </details>
-    </div>
-  </main>
-
-  <!-- ③④ 登録モーダル（登録エリアのみ） -->
-  <div id="registModal" class="modal-overlay hidden" data-close="registModal">
-    <div class="modal">
-      <div class="modal-head">
-        <span class="modal-title">日報登録 <span id="modeBadge" class="badge new">新規モード</span></span>
-        <span class="modal-sub">日報コード: <b id="nippoCdView">新規登録</b></span>
-        <span class="modal-sub result-inline">合計: <b id="totalVal">-</b></span>
-        <button id="btnCloseRegist" class="ghost" title="閉じる">✕</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+    />
+    <title>日報入力</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="auth">
+    <header class="topbar">
+      <div class="brand" id="pageTitle">ログイン</div>
+      <div class="conn">
+        <span id="connDot" class="dot"></span>
+        <span id="connText">認証待ち…</span>
+        <button id="btnReload" class="ghost" title="rkanriページを再読み込み">↻ 再読込</button>
+        <button id="btnReauth" class="ghost" title="セッションを消去してログインし直す">
+          再認証
+        </button>
       </div>
-      <input id="nippoCd" type="hidden" />
-      <div class="modal-body">
-        <div class="frow">
-          <label>日付</label>
-          <input id="date" type="date" class="w-field" />
-          <button data-days="-3" class="date-btn">一昨昨日</button>
-          <button data-days="-2" class="date-btn">一昨日</button>
-          <button data-days="-1" class="date-btn">昨日</button>
-          <button data-days="0" class="date-btn">今日</button>
-        </div>
-        <div class="frow">
-          <label>担当者</label>
-          <input id="regTanto" type="text" readonly class="w-field" />
-          <input id="regTantoName" type="text" readonly class="grow" />
-          <button id="btnTantoSearch" title="担当者マスタ検索">検索</button>
-        </div>
-        <div class="frow">
-          <label>案件コード</label>
-          <input id="ankenCd" type="text" readonly class="w-field" />
-          <button id="btnAnkenSearch" title="案件マスタ検索">検索</button>
-        </div>
-        <div class="frow">
-          <label>取引先名</label>
-          <input id="torihikisakiMei" type="text" readonly class="grow" />
-        </div>
-        <div class="frow">
-          <label>案件名</label>
-          <input id="ankenMei" type="text" readonly class="grow2" />
-        </div>
-        <div class="frow">
-          <label>作業内容</label>
-          <select id="sagyoNaiyo" class="w-field"></select>
-          <label class="lbl-sm">作業時間</label>
-          <input id="sagyozikan" type="text" size="6" />
-          <label class="lbl-sm">作業進捗</label>
-          <select id="sagyoShinchoku"></select>
-        </div>
-        <div class="frow">
-          <label>遅れ報告</label>
-          <textarea id="okureHokoku" rows="5"></textarea>
-        </div>
-        <div class="frow">
-          <label>その他報告</label>
-          <textarea id="sonotaHokoku" rows="5"></textarea>
-        </div>
+    </header>
+
+    <!-- ① 認証画面（webview は常時 DOM 上に保持し、アプリ画面ではオフスクリーンに退避） -->
+    <section id="webHost" class="web-host">
+      <div class="web-hint">
+        対象システム（Microsoft
+        SSO）にログインしてください。ログイン完了後、「ログインを確認してアプリを開く」を押してください。
       </div>
-      <div class="modal-foot">
+      <webview
+        id="rk"
+        src="https://rkanri.genech.co.jp/kanri/nippo"
+        partition="persist:rkanri"
+      ></webview>
+      <div class="auth-actions">
+        <button id="btnEnterApp" class="primary">ログインを確認してアプリを開く</button>
+      </div>
+    </section>
+
+    <!-- ② 認証後メイン画面：日報一覧テーブル + 登録ボタン -->
+    <main id="mainView" class="main-view">
+      <div class="main-toolbar">
+        <label>担当者</label>
+        <input
+          id="tanto"
+          type="text"
+          value="P-000184"
+          size="12"
+          title="担当者コード（変更後、一覧更新）"
+        />
+        <input id="tantoName" type="text" value="土田歩成" readonly />
+        <button id="btnGetList">↻ 一覧更新</button>
         <span class="spacer"></span>
-        <button id="btnRegist" class="primary">登録 / 更新</button>
-        <button id="btnDelete" class="danger">削除</button>
-        <button id="btnCopy" class="ok" title="日報コードを空にして新規化">コピー</button>
-        <button id="btnReset" class="ghost" title="開いた時の状態に戻す">リセット</button>
+        <button id="btnNew" class="primary">＋ 新規登録</button>
+        <button id="btnBulkCopy" class="ok">一括コピー</button>
+        <button id="btnBulkDelete" class="danger">一括削除</button>
+      </div>
+      <div id="listTable" class="table-wrap grow-table"></div>
+      <div class="status-bar">
+        <span id="outStatus" class="muted"></span>
+        <details class="json-details">
+          <summary>生レスポンス(JSON)</summary>
+          <pre id="jsonOut" class="json"></pre>
+        </details>
+      </div>
+    </main>
+
+    <!-- ③④ 登録モーダル（登録エリアのみ） -->
+    <div id="registModal" class="modal-overlay hidden" data-close="registModal">
+      <div class="modal">
+        <div class="modal-head">
+          <span class="modal-title"
+            >日報登録 <span id="modeBadge" class="badge new">新規モード</span></span
+          >
+          <span class="modal-sub">日報コード: <b id="nippoCdView">新規登録</b></span>
+          <span class="modal-sub result-inline">合計: <b id="totalVal">-</b></span>
+          <button id="btnCloseRegist" class="ghost" title="閉じる">✕</button>
+        </div>
+        <input id="nippoCd" type="hidden" />
+        <div class="modal-body">
+          <div class="frow">
+            <label>日付</label>
+            <input id="date" type="date" class="w-field" />
+            <button data-days="-3" class="date-btn">一昨昨日</button>
+            <button data-days="-2" class="date-btn">一昨日</button>
+            <button data-days="-1" class="date-btn">昨日</button>
+            <button data-days="0" class="date-btn">今日</button>
+          </div>
+          <div class="frow">
+            <label>担当者</label>
+            <input id="regTanto" type="text" readonly class="w-field" />
+            <input id="regTantoName" type="text" readonly class="grow" />
+            <button id="btnTantoSearch" title="担当者マスタ検索">検索</button>
+          </div>
+          <div class="frow">
+            <label>案件コード</label>
+            <input id="ankenCd" type="text" readonly class="w-field" />
+            <button id="btnAnkenSearch" title="案件マスタ検索">検索</button>
+          </div>
+          <div class="frow">
+            <label>取引先名</label>
+            <input id="torihikisakiMei" type="text" readonly class="grow" />
+          </div>
+          <div class="frow">
+            <label>案件名</label>
+            <input id="ankenMei" type="text" readonly class="grow2" />
+          </div>
+          <div class="frow">
+            <label>作業内容</label>
+            <select id="sagyoNaiyo" class="w-field"></select>
+            <label class="lbl-sm">作業時間</label>
+            <input id="sagyozikan" type="text" size="6" />
+            <label class="lbl-sm">作業進捗</label>
+            <select id="sagyoShinchoku"></select>
+          </div>
+          <div class="frow">
+            <label>遅れ報告</label>
+            <textarea id="okureHokoku" rows="5"></textarea>
+          </div>
+          <div class="frow">
+            <label>その他報告</label>
+            <textarea id="sonotaHokoku" rows="5"></textarea>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button id="btnRegist" class="primary">登録 / 更新</button>
+          <button id="btnDelete" class="danger">削除</button>
+          <button id="btnCopy" class="ok" title="日報コードを空にして新規化">コピー</button>
+          <button id="btnReset" class="ghost" title="開いた時の状態に戻す">リセット</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- ⑤ 案件マスタ検索モーダル -->
-  <div id="ankenModal" class="modal-overlay hidden" data-close="ankenModal">
-    <div class="modal modal-narrow">
-      <div class="modal-head">
-        <span class="modal-title">案件マスタ一覧</span>
-        <button id="btnCloseAnken" class="ghost" title="閉じる">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="frow">
-          <input id="svalue" type="text" class="grow" placeholder="案件コード / 取引先 / 案件名" />
-          <button id="btnAnkenDoSearch" class="primary">検索</button>
-          <button id="btnAnkenHistory">履歴</button>
+    <!-- ⑤ 案件マスタ検索モーダル -->
+    <div id="ankenModal" class="modal-overlay hidden" data-close="ankenModal">
+      <div class="modal modal-narrow">
+        <div class="modal-head">
+          <span class="modal-title">案件マスタ一覧</span>
+          <button id="btnCloseAnken" class="ghost" title="閉じる">✕</button>
         </div>
-        <div id="ankenTable" class="table-wrap modal-table"></div>
+        <div class="modal-body">
+          <div class="frow">
+            <input
+              id="svalue"
+              type="text"
+              class="grow"
+              placeholder="案件コード / 取引先 / 案件名"
+            />
+            <button id="btnAnkenDoSearch" class="primary">検索</button>
+            <button id="btnAnkenHistory">履歴</button>
+          </div>
+          <div id="ankenTable" class="table-wrap modal-table"></div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- ⑥ 担当者マスタ検索モーダル -->
-  <div id="tantoModal" class="modal-overlay hidden" data-close="tantoModal">
-    <div class="modal modal-narrow">
-      <div class="modal-head">
-        <span class="modal-title">担当者マスタ一覧</span>
-        <button id="btnCloseTanto" class="ghost" title="閉じる">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="frow">
-          <input id="svalue2" type="text" class="grow" placeholder="担当者コード / 担当者名" />
-          <button id="btnTantoDoSearch" class="primary">検索</button>
+    <!-- ⑥ 担当者マスタ検索モーダル -->
+    <div id="tantoModal" class="modal-overlay hidden" data-close="tantoModal">
+      <div class="modal modal-narrow">
+        <div class="modal-head">
+          <span class="modal-title">担当者マスタ一覧</span>
+          <button id="btnCloseTanto" class="ghost" title="閉じる">✕</button>
         </div>
-        <div id="tantoTable" class="table-wrap modal-table"></div>
+        <div class="modal-body">
+          <div class="frow">
+            <input id="svalue2" type="text" class="grow" placeholder="担当者コード / 担当者名" />
+            <button id="btnTantoDoSearch" class="primary">検索</button>
+          </div>
+          <div id="tantoTable" class="table-wrap modal-table"></div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- 一括コピー モーダル -->
-  <div id="bulkCopyModal" class="modal-overlay hidden" data-close="bulkCopyModal">
-    <div class="modal modal-narrow">
-      <div class="modal-head">
-        <span class="modal-title">一括コピー</span>
-        <span class="modal-sub">選択: <b id="bulkCount">0</b> 件</span>
-        <button id="btnCloseBulkCopy" class="ghost" title="閉じる">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="frow">
-          <label>日付種別</label>
-          <label class="radio"><input type="radio" name="bulkDateMode" value="single" checked /> 単一</label>
-          <label class="radio"><input type="radio" name="bulkDateMode" value="range" /> 範囲</label>
+    <!-- 一括コピー モーダル -->
+    <div id="bulkCopyModal" class="modal-overlay hidden" data-close="bulkCopyModal">
+      <div class="modal modal-narrow">
+        <div class="modal-head">
+          <span class="modal-title">一括コピー</span>
+          <span class="modal-sub">選択: <b id="bulkCount">0</b> 件</span>
+          <button id="btnCloseBulkCopy" class="ghost" title="閉じる">✕</button>
         </div>
-        <div class="frow">
-          <label>日付</label>
-          <input id="bulkDateFrom" type="date" class="w-field" />
-          <span id="bulkDateToWrap" class="range-to hidden">〜 <input id="bulkDateTo" type="date" class="w-field" /></span>
+        <div class="modal-body">
+          <div class="frow">
+            <label>日付種別</label>
+            <label class="radio"
+              ><input type="radio" name="bulkDateMode" value="single" checked /> 単一</label
+            >
+            <label class="radio"
+              ><input type="radio" name="bulkDateMode" value="range" /> 範囲</label
+            >
+          </div>
+          <div class="frow">
+            <label>日付</label>
+            <input id="bulkDateFrom" type="date" class="w-field" />
+            <span id="bulkDateToWrap" class="range-to hidden"
+              >〜 <input id="bulkDateTo" type="date" class="w-field"
+            /></span>
+          </div>
+          <div class="frow muted">選択した日報を、指定日（範囲の場合は各日）に新規登録します。</div>
         </div>
-        <div class="frow muted">
-          選択した日報を、指定日（範囲の場合は各日）に新規登録します。
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button id="btnBulkCopyExec" class="primary">実行</button>
         </div>
-      </div>
-      <div class="modal-foot">
-        <span class="spacer"></span>
-        <button id="btnBulkCopyExec" class="primary">実行</button>
       </div>
     </div>
-  </div>
 
-  <!-- ログイン→アプリ遷移中に既存システム画面を隠すローディングマスク -->
-  <div id="enterMask" class="enter-mask hidden">
-    <div class="spinner"></div>
-    <div>読み込み中…</div>
-  </div>
+    <!-- ログイン→アプリ遷移中に既存システム画面を隠すローディングマスク -->
+    <div id="enterMask" class="enter-mask hidden">
+      <div class="spinner"></div>
+      <div>読み込み中…</div>
+    </div>
 
-  <script src="renderer.js"></script>
-</body>
+    <script src="renderer.js"></script>
+  </body>
 </html>

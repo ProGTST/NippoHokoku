@@ -11,18 +11,25 @@
   --warn: #d97706;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body {
+html,
+body {
   margin: 0;
   height: 100%;
-  font-family: "Segoe UI", "Meiryo", system-ui, sans-serif;
+  font-family: 'Segoe UI', 'Meiryo', system-ui, sans-serif;
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
 }
 /* 画面全体は flex 縦並び。ページ自体はスクロールさせない（各エリア内でスクロール） */
-body { display: flex; flex-direction: column; overflow: hidden; }
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
 /* topbar */
 .topbar {
@@ -34,22 +41,47 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   background: #12263a;
   color: #fff;
 }
-.brand { font-weight: 600; font-size: 15px; }
-.brand .tag {
-  font-size: 10px; font-weight: 400; opacity: .7;
-  border: 1px solid rgba(255,255,255,.4); border-radius: 10px; padding: 1px 8px; margin-left: 8px;
+.brand {
+  font-weight: 600;
+  font-size: 15px;
 }
-.conn { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.brand .tag {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.7;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 8px;
+}
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
 /* 紺色ヘッダー上のボタンは白文字＋半透明背景で視認性を確保（ghost の透明を上書き） */
 .topbar button {
   color: #fff;
-  border-color: rgba(255, 255, 255, .5);
-  background: rgba(255, 255, 255, .12);
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.12);
 }
-.topbar button:hover { background: rgba(255, 255, 255, .24); }
-.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); display: inline-block; }
-.dot.ok { background: var(--ok); }
-.dot.ng { background: var(--danger); }
+.topbar button:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--warn);
+  display: inline-block;
+}
+.dot.ok {
+  background: var(--ok);
+}
+.dot.ng {
+  background: var(--danger);
+}
 
 /* ---- 認証画面（webview host） ---- */
 .web-host {
@@ -60,84 +92,186 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   background: var(--panel);
 }
 .web-hint {
-  padding: 6px 12px; font-size: 12px; color: var(--warn);
-  background: #fff8ec; border-bottom: 1px solid var(--border);
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--warn);
+  background: #fff8ec;
+  border-bottom: 1px solid var(--border);
 }
-webview { flex: 1; width: 100%; border: 0; }
+webview {
+  flex: 1;
+  width: 100%;
+  border: 0;
+}
 .auth-actions {
-  padding: 10px; border-top: 1px solid var(--border);
-  display: flex; justify-content: center; background: var(--panel);
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+  background: var(--panel);
 }
 
 /* アプリ表示中は webview をオフスクリーンに退避（DOM 保持で executeJavaScript を維持） */
 body.app .web-host {
-  position: fixed; left: -10000px; top: 0;
-  width: 1200px; height: 800px;
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1200px;
+  height: 800px;
 }
-body.app .web-hint, body.app .auth-actions { display: none; }
+body.app .web-hint,
+body.app .auth-actions {
+  display: none;
+}
 
 /* ---- 認証 / アプリ の表示切替 ---- */
-body.auth #mainView { display: none; }
-body.app  .web-host { pointer-events: none; }
-.main-view { display: none; }
+body.auth #mainView {
+  display: none;
+}
+body.app .web-host {
+  pointer-events: none;
+}
+.main-view {
+  display: none;
+}
 body.app .main-view {
-  display: flex; flex-direction: column;
-  flex: 1 1 auto; min-height: 0;
-  padding: 10px; gap: 8px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px;
+  gap: 8px;
 }
 
 /* ---- メイン画面 ---- */
 .main-toolbar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px 10px; background: var(--panel);
-  border: 1px solid var(--border); border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
-.main-toolbar label { color: var(--muted); }
-.main-toolbar .spacer { flex: 1; }
+.main-toolbar label {
+  color: var(--muted);
+}
+.main-toolbar .spacer {
+  flex: 1;
+}
 
-.status-bar { font-size: 12px; }
-.status-bar .muted { display: block; margin-bottom: 4px; }
+.status-bar {
+  font-size: 12px;
+}
+.status-bar .muted {
+  display: block;
+  margin-bottom: 4px;
+}
 
 /* ---- 汎用フォーム部品 ---- */
-input, select, textarea {
-  font-family: inherit; font-size: 13px;
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 13px;
   padding: 4px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: #fff; color: var(--text);
+  background: #fff;
+  color: var(--text);
 }
-input[readonly] { background: #eef0f2; color: #444; }
+input[readonly] {
+  background: #eef0f2;
+  color: #444;
+}
 /* 幅を揃える共通クラス（日付 / 担当者コード / 作業内容） */
-.w-field { width: 150px; min-width: 150px; flex: 0 0 auto; }
-input.grow { flex: 1; min-width: 120px; }
-input.grow2 { flex: 1; min-width: 260px; }
-textarea { flex: 1; resize: vertical; }
+.w-field {
+  width: 150px;
+  min-width: 150px;
+  flex: 0 0 auto;
+}
+input.grow {
+  flex: 1;
+  min-width: 120px;
+}
+input.grow2 {
+  flex: 1;
+  min-width: 260px;
+}
+textarea {
+  flex: 1;
+  resize: vertical;
+}
 
 button {
-  font-family: inherit; font-size: 12px;
+  font-family: inherit;
+  font-size: 12px;
   padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff; color: var(--text);
+  background: #fff;
+  color: var(--text);
   cursor: pointer;
 }
-button:hover { background: #f0f2f5; }
-button:active { transform: translateY(1px); }
-button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-button.primary:hover { background: var(--primary-d); }
-button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-button.danger:hover { filter: brightness(.93); }
-button.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
-button.ok:hover { filter: brightness(.93); }
-button.ghost { background: transparent; }
-button.date-btn { padding: 5px 8px; }
+button:hover {
+  background: #f0f2f5;
+}
+button:active {
+  transform: translateY(1px);
+}
+button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+button.primary:hover {
+  background: var(--primary-d);
+}
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+button.danger:hover {
+  filter: brightness(0.93);
+}
+button.ok {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+button.ok:hover {
+  filter: brightness(0.93);
+}
+button.ghost {
+  background: transparent;
+}
+button.date-btn {
+  padding: 5px 8px;
+}
 
-.badge { font-size: 11px; border-radius: 10px; padding: 1px 9px; }
-.badge.new { background: #e0edff; color: var(--primary-d); }
-.badge.edit { background: #fff0d9; color: var(--warn); }
+.badge {
+  font-size: 11px;
+  border-radius: 10px;
+  padding: 1px 9px;
+}
+.badge.new {
+  background: #e0edff;
+  color: var(--primary-d);
+}
+.badge.edit {
+  background: #fff0d9;
+  color: var(--warn);
+}
 
-.result-inline { color: var(--muted); }
-.result-inline b { color: var(--text); font-size: 14px; }
+.result-inline {
+  color: var(--muted);
+}
+.result-inline b {
+  color: var(--text);
+  font-size: 14px;
+}
 
 /* ---- テーブル ---- */
 .table-wrap {
@@ -146,98 +280,230 @@ button.date-btn { padding: 5px 8px; }
   border-radius: 8px;
   background: var(--panel);
 }
-.grow-table { flex: 1; min-height: 0; }
+.grow-table {
+  flex: 1;
+  min-height: 0;
+}
 /* border-collapse: separate + セル個別ボーダーにすることで、sticky ヘッダーでも
    枠線がスクロールで動かない（collapse だと上辺ボーダーがスクロールしてしまう）。 */
-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
-th, td {
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 12px;
+}
+th,
+td {
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  padding: 3px 7px; text-align: left; white-space: nowrap;
+  padding: 3px 7px;
+  text-align: left;
+  white-space: nowrap;
 }
-th:first-child, td:first-child { border-left: 1px solid var(--border); }
-thead th { border-top: 1px solid var(--border); }
+th:first-child,
+td:first-child {
+  border-left: 1px solid var(--border);
+}
+thead th {
+  border-top: 1px solid var(--border);
+}
 th {
   background: #eef1f5;
-  position: sticky; top: 0; z-index: 2;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
-tbody tr { cursor: pointer; }
-tbody tr:hover { background: #eaf2ff; }
-td.num { text-align: right; }
-th.chk, td.chk { width: 34px; text-align: center; cursor: default; }
-th.chk input, td.chk input { cursor: pointer; }
+tbody tr {
+  cursor: pointer;
+}
+tbody tr:hover {
+  background: #eaf2ff;
+}
+td.num {
+  text-align: right;
+}
+th.chk,
+td.chk {
+  width: 34px;
+  text-align: center;
+  cursor: default;
+}
+th.chk input,
+td.chk input {
+  cursor: pointer;
+}
 
-.frow > label.radio { min-width: 0; text-align: left; color: var(--text); }
-.range-to { display: inline-flex; align-items: center; gap: 6px; }
-.range-to.hidden { display: none; }
+.frow > label.radio {
+  min-width: 0;
+  text-align: left;
+  color: var(--text);
+}
+.range-to {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.range-to.hidden {
+  display: none;
+}
 
-.json-details { margin: 4px 0; }
-.json-details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.json-details {
+  margin: 4px 0;
+}
+.json-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
 .json {
-  margin: 6px 0 0; max-height: 160px; overflow: auto;
-  background: #0f172a; color: #d1e3ff;
-  padding: 8px 10px; border-radius: 6px;
-  font-family: Consolas, "Courier New", monospace; font-size: 12px;
+  margin: 6px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  background: #0f172a;
+  color: #d1e3ff;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
 }
 
 /* ---- モーダル ---- */
 .modal-overlay {
-  position: fixed; inset: 0; z-index: 40;
-  background: rgba(15, 23, 42, .45);
-  display: flex; align-items: center; justify-content: center;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 20px;
 }
-.modal-overlay.hidden { display: none; }
+.modal-overlay.hidden {
+  display: none;
+}
 .modal {
   background: var(--panel);
   border-radius: 10px;
-  width: 720px; max-width: 100%; max-height: 90vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 12px 40px rgba(0,0,0,.3);
+  width: 720px;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
 }
-.modal-narrow { width: 560px; }
+.modal-narrow {
+  width: 560px;
+}
 .modal-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
 }
-.modal-title { font-weight: 600; font-size: 14px; }
-.modal-sub { color: var(--muted); font-size: 12px; }
-.modal-sub b { color: var(--text); }
-.modal-head .ghost { margin-left: auto; padding: 2px 8px; }
-.modal-body { padding: 12px 14px; overflow: auto; }
+.modal-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.modal-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+.modal-sub b {
+  color: var(--text);
+}
+.modal-head .ghost {
+  margin-left: auto;
+  padding: 2px 8px;
+}
+.modal-body {
+  padding: 12px 14px;
+  overflow: auto;
+}
 .modal-foot {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
 }
-.modal-foot .spacer { flex: 1; }
-.modal-table { max-height: 52vh; }
+.modal-foot .spacer {
+  flex: 1;
+}
+.modal-table {
+  max-height: 52vh;
+}
 
-.frow { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-.frow > label { color: var(--muted); min-width: 74px; text-align: right; }
-.frow > label.lbl-sm { min-width: 56px; }
+.frow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.frow > label {
+  color: var(--muted);
+  min-width: 74px;
+  text-align: right;
+}
+.frow > label.lbl-sm {
+  min-width: 56px;
+}
 
 /* ログイン→アプリ遷移中のマスク（既存システム画面を隠す） */
 .enter-mask {
-  position: fixed; inset: 0; z-index: 100;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   background: var(--bg);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-  color: var(--muted); font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
-.enter-mask.hidden { display: none; }
+.enter-mask.hidden {
+  display: none;
+}
 .spinner {
-  width: 30px; height: 30px;
-  border: 3px solid var(--border); border-top-color: var(--primary);
-  border-radius: 50%; animation: spin .8s linear infinite;
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* toast */
 #toast {
-  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-  background: #12263a; color: #fff; padding: 8px 16px; border-radius: 8px;
-  font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60;
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #12263a;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  z-index: 60;
   max-width: 80%;
 }
-#toast.show { opacity: 1; }
-#toast.ok { background: var(--ok); }
-#toast.ng { background: var(--danger); }
+#toast.show {
+  opacity: 1;
+}
+#toast.ok {
+  background: var(--ok);
+}
+#toast.ng {
+  background: var(--danger);
+}
