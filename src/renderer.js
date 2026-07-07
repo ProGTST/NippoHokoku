@@ -35,6 +35,12 @@ function isBizOk(r) {
   const s = bizStatus(r);
   return s === null || s === 'success';
 }
+// エラー応答をそのまま出すための整形（オブジェクトは JSON 文字列化、文字列はそのまま）。
+function rawText(result) {
+  const d = result && result.data;
+  if (d == null) return '';
+  return typeof d === 'string' ? d : JSON.stringify(d);
+}
 
 // ---- 要素参照 -------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
@@ -142,16 +148,29 @@ function showResult(endpoint, label, reqBody, result) {
 
   renderTable(endpoint, result.data);
 
-  if (!result.ok) { toast(`${label || endpoint}: ${status}`, 'ng'); return; }
-  // HTTP は 200 でも {status:"success"} 以外はビジネスエラー扱い
-  if (biz !== null && biz !== 'success') { toast(`${label || endpoint}: 失敗 (status: ${biz})`, 'ng'); return; }
+  // エラー時はサーバー応答をそのまま表示（canned メッセージに変換しない）
+  const raw = rawText(result);
+  if (!result.ok) {
+    if (raw) $('outStatus').textContent = status + ' / ' + raw;
+    toast(`${label || endpoint}: ${status}${raw ? ' / ' + raw : ''}`, 'ng');
+    return;
+  }
+  // HTTP は 200 でも {status:"success"} 以外はビジネスエラー扱い → 応答をそのまま出す
+  if (biz !== null && biz !== 'success') {
+    $('outStatus').textContent = status + ' / ' + (raw || `status: ${biz}`);
+    toast(`${label || endpoint}: ${raw || `status: ${biz}`}`, 'ng');
+    return;
+  }
   toast(`${label || endpoint}: 成功`, 'ok');
 }
 
 function renderTable(endpoint, data) {
   const wrap = $('tableWrap');
+  // スカラー/オブジェクト応答（getTotal のスカラー、registData/deleteData の {status} 等）は
+  // 一覧ではないため、既存テーブルを上書きせず現在の表示を維持する。
+  if (!Array.isArray(data)) return;
   wrap.innerHTML = '';
-  if (!Array.isArray(data) || data.length === 0) {
+  if (data.length === 0) {
     wrap.innerHTML = '<div class="muted" style="padding:8px;">（一覧データなし）</div>';
     return;
   }
