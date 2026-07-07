@@ -701,6 +701,15 @@ function wire() {
   ['bulkDateFrom', 'bulkDateTo'].forEach(id => {
     $(id).addEventListener('keydown', (e) => { if (e.key !== 'Tab') e.preventDefault(); });
   });
+  // 範囲指定で 開始日 > 終了日 になったら 終了日＝開始日 に補正（yyyy-mm-dd は文字列比較で可）
+  const fixBulkRange = () => {
+    const f = getVal('bulkDateFrom'), t = getVal('bulkDateTo');
+    if (f && t && f > t) setVal('bulkDateTo', f);
+  };
+  ['input', 'change'].forEach(ev => {
+    $('bulkDateFrom').addEventListener(ev, fixBulkRange);
+    $('bulkDateTo').addEventListener(ev, fixBulkRange);
+  });
 
   // 登録モーダル
   $('btnCloseRegist').addEventListener('click', () => closeModal('registModal'));
