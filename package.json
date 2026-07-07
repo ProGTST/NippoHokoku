@@ -8,7 +8,6 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "pack": "electron-packager . NippoHokoku --platform=win32 --arch=x64 --out=../NippoHokoku-pack --overwrite --tmpdir=false --ignore=\"^/dist\" --ignore=\"^/\\.git\"",
     "dist": "electron-builder --win portable",
     "dist:nsis": "electron-builder --win nsis"
   },
@@ -16,7 +15,6 @@
   "license": "UNLICENSED",
   "private": true,
   "devDependencies": {
-    "@electron/packager": "^20.0.2",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "prettier": "^3.9.4",
@@ -28,9 +26,11 @@
     "files": [
       "main.js",
       "preload.js",
-      "src/**/*"
+      "src/**/*",
+      "build/icon.ico"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "portable"
       ]
