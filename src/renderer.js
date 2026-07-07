@@ -433,6 +433,8 @@ function updateMode() {
   badge.textContent = isEdit ? '編集モード' : '新規モード';
   badge.className = 'badge ' + (isEdit ? 'edit' : 'new');
   $('nippoCdView').textContent = isEdit ? getVal('nippoCd') : '新規登録';
+  // コピーは編集モードのみ表示
+  $('btnCopy').style.display = isEdit ? '' : 'none';
 }
 
 // 現行仕様の checkError() 相当
