@@ -345,12 +345,13 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
   const tbody = document.createElement('tbody');
   data.forEach(rowObj => {
     const tr = document.createElement('tr');
+    const key = rowObj['日報コード'];
+    let cb = null;
     if (selectable) {
       const td = document.createElement('td');
       td.className = 'chk';
-      const cb = document.createElement('input');
+      cb = document.createElement('input');
       cb.type = 'checkbox';
-      const key = rowObj['日報コード'];
       cb.checked = selectedNippo.has(key);
       cb.addEventListener('change', () => { if (cb.checked) selectedNippo.add(key); else selectedNippo.delete(key); });
       // チェック操作で行クリック（編集）を発火させない
@@ -365,7 +366,16 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
       if (typeof v === 'number' || /時間|作業時間/.test(c)) td.className = 'num';
       tr.appendChild(td);
     });
-    if (onRowClick) tr.addEventListener('click', () => onRowClick(rowObj));
+    tr.addEventListener('click', (e) => {
+      // Ctrl（Mac は Cmd）+クリックは、編集を開かず選択トグル
+      if (selectable && (e.ctrlKey || e.metaKey)) {
+        const now = !selectedNippo.has(key);
+        if (now) selectedNippo.add(key); else selectedNippo.delete(key);
+        if (cb) cb.checked = now;
+        return;
+      }
+      if (onRowClick) onRowClick(rowObj);
+    });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
