@@ -1,11 +1,11 @@
 'use strict';
 
-// ---- 定数（現行仕様.md より） --------------------------------------------
-const SAGYO_NAIYO = ['', '1.管理', '2.PJ会議', '2.PJレビュー', '3.調査・分析',
+// ---- 定数（現行仕様.md より。空欄は設けず必ずいずれかを選択させる） --------
+const SAGYO_NAIYO = ['1.管理', '2.PJ会議', '2.PJレビュー', '3.調査・分析',
   '4.要件定義', '5..設計', '6.開発・構築', '7.テスト', '8.ドキュメント作成',
   '9.リリース対応', '※作業待ち', '※プレ・見積', '※不具合', '※問い合わせ',
   '※社内会議', '※レビュー支援', '※学習・教育', '※その他'];
-const SAGYO_SHINCHOKU = ['', '順調', 'やや遅れ', '遅れ'];
+const SAGYO_SHINCHOKU = ['順調', 'やや遅れ', '遅れ'];
 
 // 登録・更新で送信する全11項目（tanto はメイン画面の状態、それ以外は登録モーダル）
 const REG_FIELDS = ['nippoCd', 'date', 'ankenCd', 'torihikisakiMei', 'ankenMei',
@@ -28,13 +28,26 @@ const HEADER_LABELS = {
 const $ = (id) => document.getElementById(id);
 const rk = $('rk');               // <webview>
 let webReady = false;
+let tantoAutoDone = false;        // 本人自動セット（初回のみ）
+
+// rkanri ページ内から、ログイン中ユーザーの担当者コード（P-XXXXXX）を拾う。
+// 対象ページは担当者コードを input に保持しているため、その値を読む。
+const AUTO_TANTO_PROBE = `(() => {
+  const inputs = Array.from(document.querySelectorAll('input'));
+  for (const el of inputs) {
+    const v = (el.value || '').trim();
+    if (/^P-\\d{6}$/.test(v)) return { code: v };
+  }
+  return null;
+})()`;
 
 // ---- 初期化 ---------------------------------------------------------------
 function initSelects() {
   const naiyo = $('sagyoNaiyo');
-  SAGYO_NAIYO.forEach(v => naiyo.appendChild(new Option(v || '(空欄)', v)));
+  SAGYO_NAIYO.forEach(v => naiyo.appendChild(new Option(v, v)));
+  naiyo.selectedIndex = 0; // 空欄なし。既定は先頭
   const sinchoku = $('sagyoShinchoku');
-  SAGYO_SHINCHOKU.forEach(v => sinchoku.appendChild(new Option(v || '(空欄)', v)));
+  SAGYO_SHINCHOKU.forEach(v => sinchoku.appendChild(new Option(v, v)));
   sinchoku.value = '順調'; // 既定値
 }
 
@@ -79,9 +92,21 @@ function isTargetUrl() {
 function showAuth() {
   document.body.className = 'auth';
   setConn('warn', '認証待ち（ログインしてください）');
+  updateHeaderTitle();
 }
 function enterApp() {
   document.body.className = 'app';
+  updateHeaderTitle();
+}
+
+// ヘッダーのタイトルを「現在のページ名」に合わせて更新する。
+function updateHeaderTitle() {
+  let t;
+  if (!document.body.classList.contains('app')) t = 'ログイン';
+  else if (isOpen('ankenModal') || isOpen('tantoModal')) t = 'ZOOM';
+  else if (isOpen('registModal')) t = '日報登録';
+  else t = '日報一覧';
+  $('pageTitle').textContent = t;
 }
 
 // ログイン確認 → アプリ表示。silent=true のときは失敗時トーストを抑制（自動試行用）。
@@ -92,8 +117,40 @@ async function tryEnter(silent) {
   if (r && Array.isArray(r.data)) {
     enterApp();
     renderTableInto($('listTable'), 'getNippoList', r.data, openEditModal);
+    // ログイン中の本人を自動セット（初回のみ）。担当者が変わったら一覧を取り直す。
+    const changed = await autoSetTantoOnce();
+    if (changed) await loadList();
   }
   // ログイン切れ等（callApi 内で showAuth 済み）のときは何もしない
+}
+
+// ログイン中ユーザーの担当者を自動判定してセット（初回のみ）。
+// 戻り値: 担当者コードが既定から変わったら true（呼び出し側で一覧を再取得）。
+async function autoSetTantoOnce() {
+  if (tantoAutoDone) return false;
+  tantoAutoDone = true;
+  let found = null;
+  try {
+    found = await rk.executeJavaScript(AUTO_TANTO_PROBE);
+  } catch (e) {
+    return false; // 取得失敗時は既定値のまま（各自が検索で選択）
+  }
+  if (!found || !found.code) return false;
+
+  const original = getVal('tanto');
+  setVal('tanto', found.code);
+  // 担当者名を getTantoList から解決（トーストは抑制）
+  let name = '';
+  const r = await callApi('getTantoList', { svalue: found.code }, '担当者自動判定', true);
+  if (r && Array.isArray(r.data)) {
+    const hit = r.data.find(x => x.key === found.code);
+    if (hit) name = hit['名称1'] || '';
+  }
+  // 名前が解決できた場合のみ更新（できない場合、コードが変わったなら旧名を消す）
+  if (name) setVal('tantoName', name);
+  else if (found.code !== original) setVal('tantoName', '');
+  syncRegTanto();
+  return found.code !== original;
 }
 
 // ---- 中核: rkanri のページコンテキストで API を実行 -----------------------
@@ -145,12 +202,12 @@ function rawText(result) {
 
 // API 実行。結果(result)を返す（テーブル描画は呼び出し側の責務）。
 // ログイン切れ/HTML 応答時は認証画面に戻し null を返す。
-async function callApi(endpoint, body, label) {
+// silent=true のとき成功トーストを抑制（自動処理用。エラー系は抑制しない）。
+async function callApi(endpoint, body, label, silent) {
   if (!webReady) {
     toast('埋め込みブラウザの準備中です。ログイン後に再度お試しください。', 'ng');
     return null;
   }
-  setStatus(`${endpoint} 実行中…`);
   let result;
   try {
     result = await rk.executeJavaScript(buildInjection(endpoint, body));
@@ -175,11 +232,10 @@ async function callApi(endpoint, body, label) {
   const status = result.ok ? `OK (${result.status})` : `NG (${result.status})`;
   const biz = bizStatus(result);
   const raw = rawText(result);
-  setStatus(status + (result.hasToken ? '' : ' / XSRFトークン未取得') + (biz ? ` / status: ${biz}` : ''));
 
-  // エラー時はサーバー応答をそのまま表示（canned メッセージに変換しない）
+  // エラー時はサーバー応答をそのまま「ポップアップ（toast）」で表示（canned メッセージに変換しない）
   if (!result.ok) {
-    if (raw) setStatus(status + ' / ' + raw);
+    setStatus(raw ? status + ' / ' + raw : status);
     toast(`${label || endpoint}: ${status}${raw ? ' / ' + raw : ''}`, 'ng');
     return result;
   }
@@ -189,7 +245,9 @@ async function callApi(endpoint, body, label) {
     toast(`${label || endpoint}: ${raw || `status: ${biz}`}`, 'ng');
     return result;
   }
-  toast(`${label || endpoint}: 成功`, 'ok');
+  // 成功時はステータス（OK 200 等）を表示しない
+  setStatus('');
+  if (!silent) toast(`${label || endpoint}: 成功`, 'ok');
   return result;
 }
 
@@ -239,8 +297,8 @@ async function loadList() {
 }
 
 // ---- モーダル制御 ---------------------------------------------------------
-function openModal(id) { $(id).classList.remove('hidden'); }
-function closeModal(id) { $(id).classList.add('hidden'); }
+function openModal(id) { $(id).classList.remove('hidden'); updateHeaderTitle(); }
+function closeModal(id) { $(id).classList.add('hidden'); updateHeaderTitle(); }
 function isOpen(id) { return !$(id).classList.contains('hidden'); }
 
 // ③ 行クリック → 修正モードで登録モーダル
@@ -260,8 +318,8 @@ function openEditModal(row) {
   setVal('sonotaHokoku', row['その他報告事項']);
   syncRegTanto();
   updateMode();
-  $('totalVal').textContent = '-';
   openModal('registModal');
+  doTotal(); // 開いた日付の合計を自動取得
 }
 
 // ④ 登録ボタン → 新規モードで登録モーダル
@@ -270,8 +328,8 @@ function openNewModal() {
   setVal('date', fmtDate(0));
   syncRegTanto();
   updateMode();
-  $('totalVal').textContent = '-';
   openModal('registModal');
+  doTotal(); // 当日の合計を自動取得
 }
 
 function syncRegTanto() {
@@ -293,7 +351,7 @@ function clearForm() {
   setVal('nippoCd', '');
   setVal('date', '');
   setVal('ankenCd', ''); setVal('torihikisakiMei', ''); setVal('ankenMei', '');
-  setVal('sagyoNaiyo', '');
+  $('sagyoNaiyo').selectedIndex = 0; // 空欄なし。既定は先頭
   setVal('sagyozikan', '');
   $('sagyoShinchoku').value = '順調';
   setVal('okureHokoku', '');
@@ -346,8 +404,11 @@ async function doDelete() {
   }
 }
 
+// 合計作業時間を取得して表示（登録モーダルを開くと自動実行。トーストは抑制）。
 async function doTotal() {
-  const r = await callApi('getTotal', { tanto: getVal('tanto'), date: getVal('date') }, '合計取得');
+  $('totalVal').textContent = '-';
+  if (getVal('date').trim() === '') return;
+  const r = await callApi('getTotal', { tanto: getVal('tanto'), date: getVal('date') }, '合計取得', true);
   if (r && r.ok) $('totalVal').textContent = (r.data ?? '-');
 }
 
@@ -406,7 +467,7 @@ function wire() {
   $('btnReload').addEventListener('click', () => { webReady = false; rk.reload(); });
 
   // メイン画面
-  $('btnReauth').addEventListener('click', () => showAuth());
+  $('btnReauth').addEventListener('click', () => reauth());
   $('btnGetList').addEventListener('click', () => loadList());
   $('btnNew').addEventListener('click', () => openNewModal());
 
@@ -417,10 +478,12 @@ function wire() {
   $('btnDelete').addEventListener('click', () => doDelete());
   $('btnCopy').addEventListener('click', () => { setVal('nippoCd', ''); updateMode(); toast('新規モードに切替（内容は保持）', 'ok'); });
   $('btnClear').addEventListener('click', () => clearForm());
-  $('btnGetTotal').addEventListener('click', () => doTotal());
+  // 日付ボタン: 日付を設定して合計を取り直す
   document.querySelectorAll('.date-btn').forEach(btn => {
-    btn.addEventListener('click', () => setVal('date', fmtDate(Number(btn.dataset.days))));
+    btn.addEventListener('click', () => { setVal('date', fmtDate(Number(btn.dataset.days))); doTotal(); });
   });
+  // 日付を手入力で変えたときも合計を取り直す
+  $('date').addEventListener('change', () => doTotal());
   $('btnTantoSearch').addEventListener('click', () => openTantoModal());
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
 
@@ -435,8 +498,21 @@ function wire() {
 
   // オーバーレイ背景クリックで閉じる（モーダル本体クリックは無視）
   document.querySelectorAll('.modal-overlay').forEach(ov => {
-    ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.add('hidden'); });
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeModal(ov.id); });
   });
+}
+
+// ⑥ 再認証: webview セッションを消去し、Microsoft SSO のログイン画面から入り直す。
+async function reauth() {
+  try {
+    if (window.appApi && window.appApi.clearSession) await window.appApi.clearSession();
+  } catch (e) {
+    toast('セッション消去に失敗しました: ' + (e && e.message || e), 'ng');
+  }
+  tantoAutoDone = false; // 次回ログイン時に本人を再判定
+  showAuth();
+  webReady = false;
+  rk.reload();
 }
 
 // ---- start ----------------------------------------------------------------

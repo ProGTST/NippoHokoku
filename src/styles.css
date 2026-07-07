@@ -138,9 +138,20 @@ button.date-btn { padding: 5px 8px; }
   background: var(--panel);
 }
 .grow-table { flex: 1; min-height: 0; }
-table { border-collapse: collapse; width: 100%; font-size: 12px; }
-th, td { border: 1px solid var(--border); padding: 3px 7px; text-align: left; white-space: nowrap; }
-th { background: #eef1f5; position: sticky; top: 0; }
+/* border-collapse: separate + セル個別ボーダーにすることで、sticky ヘッダーでも
+   枠線がスクロールで動かない（collapse だと上辺ボーダーがスクロールしてしまう）。 */
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
+th, td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 3px 7px; text-align: left; white-space: nowrap;
+}
+th:first-child, td:first-child { border-left: 1px solid var(--border); }
+thead th { border-top: 1px solid var(--border); }
+th {
+  background: #eef1f5;
+  position: sticky; top: 0; z-index: 2;
+}
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: #eaf2ff; }
 td.num { text-align: right; }

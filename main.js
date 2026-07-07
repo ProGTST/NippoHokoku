@@ -1,5 +1,7 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, session } = require('electron');
 const path = require('path');
+
+const RK_PARTITION = 'persist:rkanri';
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -7,7 +9,7 @@ function createWindow() {
     height: 940,
     minWidth: 1024,
     minHeight: 700,
-    title: '日報登録',
+    title: '日報入力',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -27,6 +29,13 @@ function createWindow() {
     return { action: 'deny' };
   });
 }
+
+// 再認証: webview パーティションのセッション（Cookie 等）を消去し、
+// 再読込で Microsoft SSO のログイン画面から入り直せるようにする。
+ipcMain.handle('clear-session', async () => {
+  await session.fromPartition(RK_PARTITION).clearStorageData();
+  return true;
+});
 
 app.whenReady().then(() => {
   createWindow();

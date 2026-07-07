@@ -1,7 +1,7 @@
 {
   "name": "nippo-desktop",
   "version": "0.1.0",
-  "description": "日報登録デスクトップアプリ（案A: WebView組み込み / Electron）",
+  "description": "日報入力デスクトップアプリ（案A: WebView組み込み / Electron）",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -19,7 +19,7 @@
   },
   "build": {
     "appId": "jp.co.genech.nippo.desktop",
-    "productName": "日報登録",
+    "productName": "日報入力",
     "files": [
       "main.js",
       "preload.js",
@@ -31,7 +31,7 @@
       ]
     },
     "portable": {
-      "artifactName": "日報登録-${version}.exe"
+      "artifactName": "日報入力-${version}.exe"
     },
     "directories": {
       "output": "dist"
