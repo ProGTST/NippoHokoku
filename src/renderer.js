@@ -75,6 +75,9 @@ const rk = $('rk'); // <webview>
 let webReady = false;
 let tantoAutoDone = false; // 本人自動セット（初回のみ）
 let formSnapshot = null; // 登録モーダルを開いた時点の値（リセット用）
+let tantoPickTarget = 'reg'; // 担当者モーダルで選択した担当者の設定先（'main'=日報一覧 / 'reg'=登録モーダル）
+let loginTanto = null; // ログイン担当者（本人自動セットの結果。再読込でここへ戻す）
+let pendingListReload = false; // webview 再読込の完了後、アプリ画面で一覧を取り直すフラグ
 let currentNippoList = []; // 現在表示中の日報一覧（一括操作用）
 const selectedNippo = new Set(); // 選択中の日報コード（一括操作用）
 
@@ -157,6 +160,11 @@ rk.addEventListener('did-stop-loading', () => {
   webReady = true;
   setConn('ok', isTargetUrl() ? '接続OK（対象ページ）' : '読込完了（ログイン画面）');
   if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
+  // アプリ画面での再読込完了時は、戻したログイン担当者で一覧を取り直す
+  else if (pendingListReload && isTargetUrl()) {
+    pendingListReload = false;
+    loadList();
+  }
 });
 rk.addEventListener('did-fail-load', (e) => {
   if (e.errorCode === -3) return; // ABORTED（リダイレクト等）は無視
@@ -255,6 +263,8 @@ async function autoSetTantoOnce() {
   // 名前が解決できた場合のみ更新（できない場合、コードが変わったなら旧名を消す）
   if (name) setVal('tantoName', name);
   else if (found.code !== original) setVal('tantoName', '');
+  // 再読込で戻すためのログイン担当者を確定
+  loginTanto = { code: getVal('tanto'), name: getVal('tantoName') };
   syncRegTanto();
   return found.code !== original;
 }
@@ -526,6 +536,17 @@ function resetForm() {
   toast('入力をリセットしました', 'ok');
 }
 
+// 日報一覧の担当者をログイン担当者（本人自動セットの結果）へ戻す。
+// 未確定（自動セット前）なら HTML の初期値のまま。戻り値: 実際に変わったら true。
+function restoreLoginTanto() {
+  if (!loginTanto) return false;
+  const changed = getVal('tanto') !== loginTanto.code;
+  setVal('tanto', loginTanto.code);
+  setVal('tantoName', loginTanto.name);
+  syncRegTanto();
+  return changed;
+}
+
 // 新規登録の既定担当者＝メインのログイン担当者を登録モーダルへコピーする。
 function syncRegTanto() {
   setVal('regTanto', getVal('tanto'));
@@ -768,7 +789,9 @@ function pickAnken(row) {
 }
 
 // ---- ⑥ 担当者マスタ検索モーダル ------------------------------------------
-function openTantoModal() {
+// target: 'main'=日報一覧の担当者を設定 / 'reg'（既定）=登録モーダルの担当者を設定
+function openTantoModal(target) {
+  tantoPickTarget = target === 'main' ? 'main' : 'reg';
   setVal('svalue2', '');
   openModal('tantoModal');
   $('svalue2').focus();
@@ -780,7 +803,16 @@ async function searchTantoList() {
     renderTableInto($('tantoTable'), 'getTantoList', r.data, pickTanto);
 }
 function pickTanto(row) {
-  // 登録モーダルの担当者のみ変更（メイン＝日報一覧のログイン担当者は変更しない）
+  if (tantoPickTarget === 'main') {
+    // メイン（日報一覧）の担当者を変更して一覧を取り直す
+    setVal('tanto', row['key']);
+    setVal('tantoName', row['名称1']);
+    closeModal('tantoModal');
+    toast('担当者を変更しました', 'ok');
+    loadList();
+    return;
+  }
+  // 登録モーダルの担当者のみ変更（メイン＝日報一覧の担当者は変更しない）
   setVal('regTanto', row['key']);
   setVal('regTantoName', row['名称1']);
   closeModal('tantoModal');
@@ -811,11 +843,15 @@ function wire() {
   $('btnEnterApp').addEventListener('click', () => tryEnter(false));
   $('btnReload').addEventListener('click', () => {
     webReady = false;
+    // 再読込では日報一覧の担当者をログイン担当者に戻す
+    restoreLoginTanto();
+    if (document.body.classList.contains('app')) pendingListReload = true;
     rk.reload();
   });
 
   // メイン画面
   $('btnReauth').addEventListener('click', () => reauth());
+  $('btnTantoSearchMain').addEventListener('click', () => openTantoModal('main'));
   $('btnGetList').addEventListener('click', () => loadList());
   $('btnNew').addEventListener('click', () => openNewModal());
   $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
@@ -871,7 +907,7 @@ function wire() {
   // カレンダーで日付が変わったら合計を取り直す（input/change 両方で確実に拾う）
   $('date').addEventListener('input', () => doTotal());
   $('date').addEventListener('change', () => doTotal());
-  $('btnTantoSearch').addEventListener('click', () => openTantoModal());
+  $('btnTantoSearch').addEventListener('click', () => openTantoModal('reg'));
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
 
   // 案件モーダル
@@ -908,3 +944,5 @@ async function reauth() {
 initSelects();
 wire();
 showAuth();
+// ログイン担当者の初期値（本人自動セット前の既定。autoSetTantoOnce が確定次第上書き）
+loginTanto = { code: getVal('tanto'), name: getVal('tantoName') };
