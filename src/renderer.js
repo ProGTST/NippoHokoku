@@ -492,6 +492,29 @@ function isOpen(id) {
   return !$(id).classList.contains('hidden');
 }
 
+// ---- アプリ内確認ダイアログ（native confirm の代替） ----------------------
+// native confirm/alert は <webview> 併用時、ダイアログを閉じた後もキーボード
+// フォーカスがホストへ戻らず（オフスクリーンの webview 側へ流れる）、一括処理直後に
+// 入力欄へフォーカスできなくなる不具合があった。同一 webContents 内の DOM モーダルで
+// 代替することで OS レベルのフォーカス移動を起こさない。Promise<boolean> を返す。
+let confirmResolver = null;
+function uiConfirm(message, title) {
+  return new Promise((resolve) => {
+    if (confirmResolver) confirmResolver(false); // 未解決が残っていれば false で畳む
+    confirmResolver = resolve;
+    $('confirmMsg').textContent = message;
+    $('confirmTitle').textContent = title || '確認';
+    openModal('confirmModal');
+    $('btnConfirmOk').focus();
+  });
+}
+function closeConfirm(result) {
+  const r = confirmResolver;
+  confirmResolver = null;
+  closeModal('confirmModal');
+  if (r) r(result);
+}
+
 // ③ 行クリック → 修正モードで登録モーダル
 function openEditModal(row) {
   setVal('nippoCd', row['日報コード']);
@@ -657,7 +680,7 @@ async function doDelete() {
     toast('日報コードが空です（削除対象なし）', 'ng');
     return;
   }
-  if (!confirm('削除します。元に戻せませんのでご注意を')) return;
+  if (!(await uiConfirm('削除します。元に戻せませんのでご注意を'))) return;
   const r = await callApi('deleteData', { nippoCd: getVal('nippoCd') }, '削除');
   if (isBizOk(r)) {
     closeModal('registModal');
@@ -742,9 +765,9 @@ async function doBulkCopy() {
   }
   const total = rows.length * dates.length;
   if (
-    !confirm(
+    !(await uiConfirm(
       `選択 ${rows.length} 件 × ${dates.length} 日 = ${total} 件を新規登録します。よろしいですか？`
-    )
+    ))
   )
     return;
 
@@ -785,7 +808,8 @@ async function doBulkDelete() {
     toast('対象の日報を選択してください', 'ng');
     return;
   }
-  if (!confirm(`選択した ${rows.length} 件を削除します。元に戻せませんのでご注意を`)) return;
+  if (!(await uiConfirm(`選択した ${rows.length} 件を削除します。元に戻せませんのでご注意を`)))
+    return;
   let ok = 0,
     ng = 0;
   for (const r of rows) {
@@ -916,7 +940,7 @@ async function checkForUpdate() {
   if (updatePromptShown) return;
   updatePromptShown = true;
   if (
-    confirm(
+    await uiConfirm(
       `最新のバージョン ${r.version || ''} がアップロードされています。\n最新のバージョンにアップデートしますか？`
     )
   ) {
@@ -928,7 +952,9 @@ async function checkForUpdate() {
 async function doUpdate() {
   if (updateBusy) return;
   if (
-    !confirm('最新バージョンに更新します。ダウンロード後にアプリを再起動します。よろしいですか？')
+    !(await uiConfirm(
+      '最新バージョンに更新します。ダウンロード後にアプリを再起動します。よろしいですか？'
+    ))
   )
     return;
   startUpdateFlow();
@@ -1080,10 +1106,26 @@ function wire() {
   $('btnPermFull').addEventListener('click', () => confirmPerm(false)); // 全権許可
   $('btnPermView').addEventListener('click', () => confirmPerm(true)); // 参照のみ
 
+  // 共通確認モーダル（native confirm の代替）
+  $('btnConfirmOk').addEventListener('click', () => closeConfirm(true));
+  $('btnConfirmCancel').addEventListener('click', () => closeConfirm(false));
+  $('confirmModal').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      closeConfirm(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeConfirm(false);
+    }
+  });
+
   // オーバーレイ背景クリックで閉じる（モーダル本体クリックは無視）
   qsa('.modal-overlay').forEach((ov) => {
     ov.addEventListener('click', (e) => {
-      if (e.target === ov) closeModal(ov.id);
+      if (e.target !== ov) return;
+      // 確認モーダルは背景クリックをキャンセル扱いにして Promise を解決する
+      if (ov.id === 'confirmModal') closeConfirm(false);
+      else closeModal(ov.id);
     });
   });
 

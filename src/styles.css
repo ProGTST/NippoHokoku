@@ -319,6 +319,10 @@ body.view-only #btnReset {
 .perm-msg {
   font-weight: 600;
 }
+.confirm-msg {
+  white-space: pre-wrap; /* メッセージ内の改行(\n)を反映 */
+  line-height: 1.6;
+}
 .perm-note {
   margin-bottom: 8px;
   line-height: 1.6;

@@ -236,6 +236,23 @@
       </div>
     </div>
 
+    <!-- 共通確認モーダル（native confirm の代替。webview へのフォーカス移動を避ける） -->
+    <div id="confirmModal" class="modal-overlay hidden">
+      <div class="modal modal-narrow">
+        <div class="modal-head">
+          <span id="confirmTitle" class="modal-title">確認</span>
+        </div>
+        <div class="modal-body">
+          <div id="confirmMsg" class="frow confirm-msg"></div>
+        </div>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button id="btnConfirmOk" class="primary">OK</button>
+          <button id="btnConfirmCancel" class="ghost">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ログイン→アプリ遷移中に既存システム画面を隠すローディングマスク -->
     <div id="enterMask" class="enter-mask hidden">
       <div class="spinner"></div>
