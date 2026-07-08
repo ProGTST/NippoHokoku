@@ -1,6 +1,6 @@
 {
   "name": "nippo-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "日報入力デスクトップアプリ（案A: WebView組み込み / Electron）",
   "main": "main.js",
   "scripts": {
