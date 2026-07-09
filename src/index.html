@@ -128,47 +128,77 @@
         </div>
         <input id="nippoCd" type="hidden" />
         <div class="modal-body">
-          <div class="frow">
-            <label>日付</label>
-            <input id="date" type="date" class="w-field" />
-            <button data-days="-3" class="date-btn">一昨昨日</button>
-            <button data-days="-2" class="date-btn">一昨日</button>
-            <button data-days="-1" class="date-btn">昨日</button>
-            <button data-days="0" class="date-btn">今日</button>
-          </div>
-          <div class="frow">
-            <label>担当者</label>
-            <input id="regTanto" type="text" readonly class="w-field" />
-            <input id="regTantoName" type="text" readonly class="grow" />
-          </div>
-          <div class="frow">
-            <label>案件コード</label>
-            <input id="ankenCd" type="text" readonly class="w-field" />
-            <button id="btnAnkenSearch" title="案件マスタ検索">検索</button>
-          </div>
-          <div class="frow">
-            <label>取引先名</label>
-            <input id="torihikisakiMei" type="text" readonly class="grow" />
-          </div>
-          <div class="frow">
-            <label>案件名</label>
-            <input id="ankenMei" type="text" readonly class="grow2" />
-          </div>
-          <div class="frow">
-            <label>作業内容</label>
-            <select id="sagyoNaiyo" class="w-field"></select>
-            <label class="lbl-sm">作業時間</label>
-            <input id="sagyozikan" type="text" size="6" />
-            <label class="lbl-sm">作業進捗</label>
-            <select id="sagyoShinchoku"></select>
-          </div>
-          <div class="frow">
-            <label>遅れ報告</label>
-            <textarea id="okureHokoku" rows="5"></textarea>
-          </div>
-          <div class="frow">
-            <label>その他報告</label>
-            <textarea id="sonotaHokoku" rows="5"></textarea>
+          <div class="reg-split">
+            <!-- 左ブロック: コピー元の参照表示（コピー実行時のみ表示。右の入力フォームと同じ項目構成） -->
+            <div id="regSource" class="reg-source hidden">
+              <div class="reg-source-title">コピー元</div>
+              <div class="frow"><label>日付</label><span id="srcDate" class="dval"></span></div>
+              <div class="frow"><label>担当者</label><span id="srcTanto" class="dval"></span></div>
+              <div class="frow">
+                <label>案件コード</label><span id="srcAnkenCd" class="dval"></span>
+              </div>
+              <div class="frow">
+                <label>取引先名</label><span id="srcTorihiki" class="dval"></span>
+              </div>
+              <div class="frow"><label>案件名</label><span id="srcAnken" class="dval"></span></div>
+              <div class="frow frow-inline">
+                <label>作業内容</label><span id="srcSagyoNaiyo" class="dval"></span>
+                <label class="lbl-sm">作業時間</label><span id="srcSagyozikan" class="dval"></span>
+                <label class="lbl-sm">作業進捗</label
+                ><span id="srcSagyoShinchoku" class="dval"></span>
+              </div>
+              <div class="frow frow-area">
+                <label>遅れ報告</label><span id="srcOkure" class="dval multiline"></span>
+              </div>
+              <div class="frow frow-area">
+                <label>その他報告</label><span id="srcSonota" class="dval multiline"></span>
+              </div>
+            </div>
+            <!-- 右ブロック: 入力フォーム（現行レイアウトのまま） -->
+            <div class="reg-form">
+              <div class="frow">
+                <label>日付</label>
+                <input id="date" type="date" class="w-field" />
+                <button data-days="-3" class="date-btn">一昨昨日</button>
+                <button data-days="-2" class="date-btn">一昨日</button>
+                <button data-days="-1" class="date-btn">昨日</button>
+                <button data-days="0" class="date-btn">今日</button>
+              </div>
+              <div class="frow">
+                <label>担当者</label>
+                <input id="regTanto" type="text" readonly class="w-field" />
+                <input id="regTantoName" type="text" readonly class="grow" />
+              </div>
+              <div class="frow">
+                <label>案件コード</label>
+                <input id="ankenCd" type="text" readonly class="w-field" />
+                <button id="btnAnkenSearch" title="案件マスタ検索">検索</button>
+              </div>
+              <div class="frow">
+                <label>取引先名</label>
+                <input id="torihikisakiMei" type="text" readonly class="grow" />
+              </div>
+              <div class="frow">
+                <label>案件名</label>
+                <input id="ankenMei" type="text" readonly class="grow2" />
+              </div>
+              <div class="frow">
+                <label>作業内容</label>
+                <select id="sagyoNaiyo" class="w-field"></select>
+                <label class="lbl-sm">作業時間</label>
+                <input id="sagyozikan" type="text" size="6" />
+                <label class="lbl-sm">作業進捗</label>
+                <select id="sagyoShinchoku"></select>
+              </div>
+              <div class="frow">
+                <label>遅れ報告</label>
+                <textarea id="okureHokoku" rows="5"></textarea>
+              </div>
+              <div class="frow">
+                <label>その他報告</label>
+                <textarea id="sonotaHokoku" rows="5"></textarea>
+              </div>
+            </div>
           </div>
         </div>
         <div class="modal-foot">

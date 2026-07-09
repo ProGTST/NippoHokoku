@@ -529,8 +529,8 @@ th.chk input,
 td.chk input {
   cursor: pointer;
 }
-/* 日報一覧の固定幅列（選択列は .chk＝34px。以下 日付/案件コード/作業時間/作業進捗）。
-   width/min/max を揃えて内容に依らず一定幅にする。残り列（取引先名・案件名・作業内容・
+/* 日報一覧の固定幅列（選択列は .chk＝34px。以下 日付/案件コード/取引先名/案件名/作業時間/作業進捗）。
+   width/min/max を揃えて内容に依らず一定幅にする。残り列（作業内容・
    その他報告事項）が可変幅で残りを埋める。 */
 .tbl-getNippoList [data-col='日付'] {
   width: 75px;
@@ -541,6 +541,16 @@ td.chk input {
   width: 85px;
   min-width: 85px;
   max-width: 85px;
+}
+.tbl-getNippoList [data-col='取引先名'] {
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+}
+.tbl-getNippoList [data-col='案件名'] {
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
 }
 .tbl-getNippoList [data-col='作業時間'] {
   width: 64px;
@@ -556,6 +566,23 @@ td.chk input {
   width: 64px;
   min-width: 64px;
   max-width: 64px;
+}
+/* 列幅を超える内容は隣の列へはみ出させず、セル右端で見切れさせる（… 省略はしない）。 */
+.tbl-getNippoList td[data-col],
+.tbl-getNippoList th[data-col] {
+  overflow: hidden;
+}
+/* セル内容は横スクロール可能な内箱（.cell）に入れる（renderer.js で生成）。
+   table-cell 自体はスクロールコンテナにならず範囲選択が右端で止まるため、
+   内箱を overflow-x:auto にして「見切れた文字をドラッグ選択すると横スクロールして
+   現れ、そのままコピーできる」状態にする。スクロールバーは隠す。 */
+.tbl-getNippoList td[data-col] > .cell {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+.tbl-getNippoList td[data-col] > .cell::-webkit-scrollbar {
+  display: none; /* Chromium / Electron */
 }
 
 .frow > label.radio {
@@ -657,6 +684,107 @@ td.chk input {
 }
 .modal-table {
   max-height: 52vh;
+}
+
+/* 登録モーダル: コピー実行時は 左（コピー元の参照）／右（入力フォーム）に
+   本文を完全に二分割し、境界に縦線を入れる。align-items:stretch で両カラムを
+   同じ高さに揃えるため、縦線は本文（ヘッダー／フッター以外）全体に渡る。
+   コピー元非表示時は右フォームのみが通常幅で表示される。 */
+.reg-split {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  /* 左右の行を1対1で高さを揃えるための基準値 */
+  --reg-row-h: 30px; /* 単一行（入力欄・プルダウン）の高さ */
+  --reg-area-h: 96px; /* テキストエリア（遅れ報告・その他報告）の高さ */
+}
+.reg-form {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* 右フォームのコントロール高さを基準値に固定し、左ブロックの各行と揃える */
+.reg-form input,
+.reg-form select {
+  height: var(--reg-row-h);
+}
+.reg-form textarea {
+  height: var(--reg-area-h);
+}
+.reg-source {
+  position: relative; /* コピー元ラベルを右上に絶対配置する基準 */
+  flex: 0 0 300px; /* コピー元ブロックは固定の狭い幅 */
+  min-width: 0;
+  /* 枠や背景でまとめず、右フォームと同じ白背景上に表示。左右は縦線で区切る */
+  padding-right: 16px;
+  border-right: 1px solid var(--border);
+}
+/* コピー元表示中のみ、右フォーム側にも境界からの余白をつけて左右を対称にする */
+.reg-source:not(.hidden) + .reg-form {
+  padding-left: 16px;
+}
+.reg-source.hidden {
+  display: none;
+}
+/* 「コピー元」ラベルは左ブロックの右上へ。絶対配置で行の流れに影響させない
+   （各行を右フォームの対応行と正確に揃えるため） */
+.reg-source-title {
+  position: absolute;
+  top: 0;
+  right: 16px;
+  margin: 0;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* 左ブロックの各項目を、右フォームの対応行と同じ高さに揃える */
+.reg-source .frow {
+  min-height: var(--reg-row-h);
+}
+.reg-source .frow-area {
+  min-height: var(--reg-area-h);
+  align-items: flex-start;
+}
+/* 作業内容／作業時間／作業進捗は間隔を詰めて表示（データ幅で左詰め） */
+.reg-source .frow-inline .dval {
+  flex: 0 1 auto;
+}
+.reg-source .frow-inline label.lbl-sm {
+  min-width: auto;
+}
+/* コピー元のデータ表示（入力欄の代わりの読み取り専用ラベル） */
+.reg-source .dval {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.reg-source .dval.multiline {
+  white-space: pre-wrap;
+}
+/* コピー元「その他報告」は表示幅を固定し、その幅で折り返す（flex の伸縮追従をやめる） */
+#srcSonota {
+  flex: 0 0 190px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* コピー元「取引先名」「案件名」は固定幅・折り返しなし。指定幅を超える文字は右端で
+   見切れさせ、内箱を横スクロールコンテナにして範囲選択で見切れ部分を確認・コピーできる。 */
+#srcTorihiki,
+#srcAnken {
+  flex: 0 0 190px;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+#srcTorihiki::-webkit-scrollbar,
+#srcAnken::-webkit-scrollbar {
+  display: none; /* Chromium / Electron */
+}
+/* コピー元表示中はモーダルを広げて2カラムを収める（左は固定300px、右が残りを埋める）。
+   画面幅を超える場合は max-width:100% で収まる。 */
+.modal--wide {
+  width: 1280px;
 }
 
 .frow {

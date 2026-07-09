@@ -477,11 +477,20 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
       const td = document.createElement('td');
       td.dataset.col = c; // 列名で列幅を CSS 指定できるように
       const v = rowObj[c];
-      td.textContent = v == null ? '' : String(v);
+      // 列幅を超える文字を範囲選択で辿れるよう、内容は横スクロール可能な内箱に入れる
+      // （スクロールバーは CSS で非表示。td 自体は table-cell でスクロールできないため）
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.textContent = v == null ? '' : String(v);
+      td.appendChild(cell);
       if (typeof v === 'number' || /時間|作業時間/.test(c)) td.className = 'num';
       tr.appendChild(td);
     });
     tr.addEventListener('click', (e) => {
+      // セル内テキストを範囲選択した直後のクリックでは編集を開かない
+      // （見切れた文字をドラッグ選択してコピーする操作を妨げないため）
+      const sel = window.getSelection && window.getSelection();
+      if (sel && !sel.isCollapsed && String(sel).length) return;
       // Ctrl（Mac は Cmd）+クリックは、編集を開かず選択トグル
       if (selectable && (e.ctrlKey || e.metaKey)) {
         const now = !selectedNippo.has(key);
@@ -658,6 +667,7 @@ function openEditModal(row) {
   // 登録モーダルの担当者は行の担当者（メインのログイン担当者は変更しない）
   setVal('regTanto', row['担当者コード'] || getVal('tanto'));
   setVal('regTantoName', row['担当者名'] || getVal('tantoName'));
+  hideCopySource(); // コピー元の参照表示は毎回リセット
   updateMode();
   takeSnapshot(); // 選択された未編集の状態（リセットの復元先）
   openModal('registModal');
@@ -673,6 +683,7 @@ function openNewModal() {
   clearForm();
   setVal('date', fmtDate(0));
   syncRegTanto();
+  hideCopySource(); // コピー元の参照表示は毎回リセット
   updateMode();
   takeSnapshot(); // 新規のデフォルト表示（リセットの復元先）
   openModal('registModal');
@@ -690,6 +701,7 @@ function resetForm() {
   if (!formSnapshot) return;
   // regTanto/regTantoName もスナップショットから復元するため syncRegTanto は呼ばない
   SNAPSHOT_FIELDS.forEach((f) => setVal(f, formSnapshot[f]));
+  hideCopySource(); // 開いた時点（コピー前）の状態へ戻すため参照表示も消す
   updateMode();
   doTotal(); // 復元した日付に応じた合計を再表示
   toast('入力をリセットしました', 'ok');
@@ -762,6 +774,35 @@ function updateMode() {
   $('btnRegist').textContent = isEdit ? '更新' : '登録';
   // コピーは編集モードのみ表示（参照のみモードでは CSS で非表示）
   $('btnCopy').style.display = isEdit ? '' : 'none';
+}
+
+// ---- コピー元の参照表示（登録モーダル左ブロック） -------------------------
+// 表示するのは編集後の内容ではなく、日報コードに紐づく初期表示時のデータ
+// （＝モーダルを開いた時点の formSnapshot）。入力欄と対になる項目を読み取り専用表示する。
+const COPY_SOURCE_MAP = {
+  srcDate: (s) => (s.date ? toApiDate(s.date) : ''),
+  srcTanto: (s) => [s.regTanto, s.regTantoName].filter(Boolean).join(' '),
+  srcAnkenCd: (s) => s.ankenCd,
+  srcTorihiki: (s) => s.torihikisakiMei,
+  srcAnken: (s) => s.ankenMei,
+  srcSagyoNaiyo: (s) => s.sagyoNaiyo,
+  srcSagyozikan: (s) => s.sagyozikan,
+  srcSagyoShinchoku: (s) => s.sagyoShinchoku,
+  srcOkure: (s) => s.okureHokoku,
+  srcSonota: (s) => s.sonotaHokoku
+};
+function showCopySource() {
+  const snap = formSnapshot || {};
+  Object.entries(COPY_SOURCE_MAP).forEach(([id, get]) => {
+    const el = $(id);
+    if (el) el.textContent = get(snap) ?? '';
+  });
+  $('regSource').classList.remove('hidden');
+  $('registModal').querySelector('.modal').classList.add('modal--wide');
+}
+function hideCopySource() {
+  $('regSource').classList.add('hidden');
+  $('registModal').querySelector('.modal').classList.remove('modal--wide');
 }
 
 // 現行仕様の checkError() 相当
@@ -1225,9 +1266,10 @@ function wire() {
   $('btnRegist').addEventListener('click', () => doRegist());
   $('btnDelete').addEventListener('click', () => doDelete());
   $('btnCopy').addEventListener('click', () => {
+    showCopySource(); // 左ブロックにコピー元（現在の内容）を表示
     setVal('nippoCd', '');
     updateMode();
-    toast('新規モードに切替（内容は保持）', 'ok');
+    toast('新規モードに切替（コピー元を左に表示）', 'ok');
   });
   $('btnReset').addEventListener('click', () => resetForm());
   // 日付ボタン: 日付を設定して合計を取り直す
