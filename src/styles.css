@@ -41,9 +41,37 @@ body {
   background: #12263a;
   color: #fff;
 }
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .brand {
   font-weight: 600;
   font-size: 15px;
+}
+/* 担当者グループはヘッダー（紺色背景）上に表示。ログイン画面では非表示 */
+.tanto-group {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+body.app .tanto-group {
+  display: flex;
+}
+.tanto-group label {
+  opacity: 0.8;
+}
+.tanto-group input {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.tanto-group #tantoName {
+  width: 8em;
 }
 .brand .tag {
   font-size: 10px;
@@ -61,12 +89,14 @@ body {
   font-size: 12px;
 }
 /* 紺色ヘッダー上のボタンは白文字＋半透明背景で視認性を確保（ghost の透明を上書き） */
-.topbar button {
+.topbar button,
+.topbar button.ghost {
   color: #fff;
   border-color: rgba(255, 255, 255, 0.5);
   background: rgba(255, 255, 255, 0.12);
 }
-.topbar button:hover {
+.topbar button:hover,
+.topbar button.ghost:hover {
   background: rgba(255, 255, 255, 0.24);
 }
 .dot {
@@ -147,7 +177,8 @@ body.app .main-view {
 .main-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
+  row-gap: 2px;
   flex-wrap: wrap;
   padding: 8px 10px;
   background: var(--panel);
@@ -157,8 +188,79 @@ body.app .main-view {
 .main-toolbar label {
   color: var(--muted);
 }
+/* 検索条件（2・3段目）のラベルを固定幅にして列を縦に揃える
+   （案件コード↔作業内容、取引先名↔作業進捗）。
+   テキストは右寄せにして入力コントロールへ近づける。 */
+.main-toolbar label[for^='f'] {
+  width: 5em;
+  text-align: right;
+}
+/* その他報告は5文字でラベル箱が埋まり、前の作業進捗プルダウンと詰まるため、
+   左に余白を足して他グループと同程度の間隔をあける（列揃えは不要な列）。 */
+.main-toolbar label[for='fSonota'] {
+  margin-left: 16px;
+}
+.main-toolbar input[type='text'],
+.main-toolbar select {
+  height: 28px;
+  box-sizing: border-box;
+}
+/* テキスト入力の既定幅（プルダウンは内容に合わせ、幅を伸ばさない） */
+.main-toolbar input[type='text'] {
+  width: 12em;
+}
+/* 個別の入力欄幅 */
+#fTorihiki {
+  width: 18em;
+}
+#fAnken {
+  width: 24em;
+}
+#fSonota {
+  width: 40em;
+}
+/* クリアボタンを行の右端へ */
+#btnClearFilter {
+  margin-left: auto;
+}
 .main-toolbar .spacer {
   flex: 1;
+}
+/* main-toolbar 内で絞り込み条件を次の段へ折り返すための区切り（同一パネル内で改行） */
+.toolbar-break {
+  flex-basis: 100%;
+  height: 0;
+}
+/* 1段目と2段目の間だけ少し間隔を広げる */
+.toolbar-break.break-gap {
+  height: 6px;
+}
+/* アイコンボタン（全件表示⇄月表示 切替） */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+}
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+.mode-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.month-nav.hidden {
+  display: none;
+}
+.month-nav input[type='month'] {
+  padding: 3px 6px;
 }
 
 .status-bar {
@@ -347,6 +449,25 @@ body.view-only #btnReset {
   flex: 1;
   min-height: 0;
 }
+/* データ0件時のメッセージ（テーブルヘッダーは維持し、ボディ全体の中央に表示） */
+/* テーブルをコンテナいっぱいに広げ、1行のセルをボディ全体で縦中央に見せる */
+table.is-empty {
+  height: 100%;
+}
+.empty-cell {
+  text-align: center;
+  vertical-align: middle;
+  padding: 24px 8px;
+}
+/* 列を特定できない場合のフォールバック（ヘッダーなし・領域中央表示） */
+.empty-list {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 80px;
+  padding: 16px;
+}
 /* border-collapse: separate + セル個別ボーダーにすることで、sticky ヘッダーでも
    枠線がスクロールで動かない（collapse だと上辺ボーダーがスクロールしてしまう）。 */
 table {
@@ -382,6 +503,19 @@ tbody tr {
 tbody tr:hover {
   background: #eaf2ff;
 }
+/* 作業進捗の遅れを行全体で強調（濃度: 遅れ > やや遅れ） */
+tbody tr.delay-warn {
+  background: #fdeaea; /* やや遅れ：薄い赤色 */
+}
+tbody tr.delay-late {
+  background: #f8caca; /* 遅れ：やや薄い赤色 */
+}
+tbody tr.delay-warn:hover {
+  background: #fbdcdc;
+}
+tbody tr.delay-late:hover {
+  background: #f4b8b8;
+}
 td.num {
   text-align: right;
 }
@@ -394,6 +528,34 @@ td.chk {
 th.chk input,
 td.chk input {
   cursor: pointer;
+}
+/* 日報一覧の固定幅列（選択列は .chk＝34px。以下 日付/案件コード/作業時間/作業進捗）。
+   width/min/max を揃えて内容に依らず一定幅にする。残り列（取引先名・案件名・作業内容・
+   その他報告事項）が可変幅で残りを埋める。 */
+.tbl-getNippoList [data-col='日付'] {
+  width: 75px;
+  min-width: 75px;
+  max-width: 75px;
+}
+.tbl-getNippoList [data-col='案件コード'] {
+  width: 85px;
+  min-width: 85px;
+  max-width: 85px;
+}
+.tbl-getNippoList [data-col='作業時間'] {
+  width: 64px;
+  min-width: 64px;
+  max-width: 64px;
+}
+.tbl-getNippoList [data-col='作業内容'] {
+  width: 140px;
+  min-width: 140px;
+  max-width: 140px;
+}
+.tbl-getNippoList [data-col='作業進捗'] {
+  width: 64px;
+  min-width: 64px;
+  max-width: 64px;
 }
 
 .frow > label.radio {

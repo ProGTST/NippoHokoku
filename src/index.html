@@ -11,7 +11,22 @@
   </head>
   <body class="auth">
     <header class="topbar">
-      <div class="brand" id="pageTitle">ログイン</div>
+      <div class="topbar-left">
+        <div class="brand" id="pageTitle">ログイン</div>
+        <div class="tanto-group" id="tantoGroup">
+          <label>担当者</label>
+          <input
+            id="tanto"
+            type="text"
+            value="P-000184"
+            size="12"
+            readonly
+            title="担当者コード（検索から選択）"
+          />
+          <input id="tantoName" type="text" value="土田歩成" readonly />
+          <button id="btnTantoChange" title="担当者を変更">担当変更</button>
+        </div>
+      </div>
       <div class="conn">
         <span id="connDot" class="dot"></span>
         <span id="connText">認証待ち…</span>
@@ -41,22 +56,48 @@
     <!-- ② 認証後メイン画面：日報一覧テーブル + 登録ボタン -->
     <main id="mainView" class="main-view">
       <div class="main-toolbar">
-        <label>担当者</label>
-        <input
-          id="tanto"
-          type="text"
-          value="P-000184"
-          size="12"
-          readonly
-          title="担当者コード（検索から選択）"
-        />
-        <input id="tantoName" type="text" value="土田歩成" readonly />
-        <button id="btnTantoChange" title="担当者を変更">担当変更</button>
-        <button id="btnGetList">↻ 一覧更新</button>
+        <button id="btnToggleAll" class="icon-btn" title="全件表示へ切替">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 7h13" />
+            <path d="M13 3l4 4-4 4" />
+            <path d="M20 17H7" />
+            <path d="M11 13l-4 4 4 4" />
+          </svg>
+        </button>
+        <span id="modeLabel" class="mode-label">月表示モード</span>
+        <span id="monthNav" class="month-nav">
+          <button id="btnPrevMonth" title="前の月">◀</button>
+          <input id="filterMonth" type="month" title="表示する月" />
+          <button id="btnNextMonth" title="次の月">▶</button>
+        </span>
         <span class="spacer"></span>
+        <button id="btnGetList">↻ 一覧更新</button>
         <button id="btnNew" class="primary">新規登録</button>
         <button id="btnBulkCopy" class="ok">一括コピー</button>
         <button id="btnBulkDelete" class="danger">一括削除</button>
+        <div class="toolbar-break break-gap"></div>
+        <label for="fCode">案件コード</label>
+        <input id="fCode" type="text" size="10" placeholder="部分一致" />
+        <label for="fTorihiki">取引先名</label>
+        <input id="fTorihiki" type="text" size="12" placeholder="部分一致" />
+        <label for="fAnken">案件名</label>
+        <input id="fAnken" type="text" size="12" placeholder="部分一致" />
+        <div class="toolbar-break"></div>
+        <label for="fNaiyo">作業内容</label>
+        <select id="fNaiyo"></select>
+        <label for="fShinchoku">作業進捗</label>
+        <select id="fShinchoku"></select>
+        <label for="fSonota">その他報告</label>
+        <input id="fSonota" type="text" size="12" placeholder="部分一致" />
+        <button id="btnClearFilter" class="ghost" title="絞り込み条件をクリア">クリア</button>
       </div>
       <div id="listTable" class="table-wrap grow-table"></div>
       <div class="status-bar">
@@ -132,7 +173,7 @@
         </div>
         <div class="modal-foot">
           <span class="spacer"></span>
-          <button id="btnRegist" class="primary">登録 / 更新</button>
+          <button id="btnRegist" class="primary">登録</button>
           <button id="btnDelete" class="danger">削除</button>
           <button id="btnCopy" class="ok" title="日報コードを空にして新規化">コピー</button>
           <button id="btnReset" class="ghost" title="開いた時の状態に戻す">リセット</button>
