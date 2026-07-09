@@ -699,12 +699,34 @@ function takeSnapshot() {
 }
 function resetForm() {
   if (!formSnapshot) return;
+  // コピー登録中は「コピー元の値に戻す」：新規モード（日報コード空）のまま入力欄を
+  // コピー元＝スナップショットの値へ戻す。コピー元パネルは表示したまま。
+  if (isCopyMode()) {
+    SNAPSHOT_FIELDS.forEach((f) => {
+      if (f !== 'nippoCd') setVal(f, formSnapshot[f]);
+    });
+    updateMode();
+    doTotal();
+    toast('コピー元の値に戻しました', 'ok');
+    return;
+  }
+  // 通常（新規／修正モード）：開いた時点の状態へ復元
   // regTanto/regTantoName もスナップショットから復元するため syncRegTanto は呼ばない
   SNAPSHOT_FIELDS.forEach((f) => setVal(f, formSnapshot[f]));
-  hideCopySource(); // 開いた時点（コピー前）の状態へ戻すため参照表示も消す
+  hideCopySource();
   updateMode();
   doTotal(); // 復元した日付に応じた合計を再表示
   toast('入力をリセットしました', 'ok');
+}
+
+// コピー押下前の修正モードの初期表示状態へ戻す（日報コードも復元して修正モードに戻る）。
+function backToEdit() {
+  if (!formSnapshot) return;
+  SNAPSHOT_FIELDS.forEach((f) => setVal(f, formSnapshot[f]));
+  hideCopySource();
+  updateMode();
+  doTotal();
+  toast('修正モードに戻りました', 'ok');
 }
 
 // 日報一覧の担当者をログイン担当者（本人自動セットの結果）へ戻す。
@@ -799,10 +821,19 @@ function showCopySource() {
   });
   $('regSource').classList.remove('hidden');
   $('registModal').querySelector('.modal').classList.add('modal--wide');
+  // コピー登録中は「戻る」を表示。リセットは「コピー元の値に戻す」動作になる。
+  $('btnBack').style.display = '';
+  $('btnReset').title = 'コピー元の値に戻す';
 }
 function hideCopySource() {
   $('regSource').classList.add('hidden');
   $('registModal').querySelector('.modal').classList.remove('modal--wide');
+  $('btnBack').style.display = 'none';
+  $('btnReset').title = '開いた時の状態に戻す';
+}
+// コピー登録中（コピー元パネル表示中）か
+function isCopyMode() {
+  return !$('regSource').classList.contains('hidden');
 }
 
 // 現行仕様の checkError() 相当
@@ -1272,6 +1303,7 @@ function wire() {
     toast('新規モードに切替（コピー元を左に表示）', 'ok');
   });
   $('btnReset').addEventListener('click', () => resetForm());
+  $('btnBack').addEventListener('click', () => backToEdit());
   // 日付ボタン: 日付を設定して合計を取り直す
   qsa('.date-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
