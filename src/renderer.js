@@ -1107,10 +1107,19 @@ function applyViewOnly(on) {
 let updateBusy = false; // ダウンロード〜再起動の進行中フラグ
 let updatePromptShown = false; // このログインセッションで更新確認ダイアログを表示したか（多重表示防止）
 
-// フッターに現在のバージョンを表示する（更新ボタンの右）。
+// 更新ボタンはログイン画面（btnUpdateLogin）と日報一覧（btnUpdate）の両方にある。
+// 存在するものだけまとめて扱う。
+function updateBtns() {
+  return ['btnUpdate', 'btnUpdateLogin'].map((id) => $(id)).filter(Boolean);
+}
+
+// フッターに現在のバージョンを表示する（更新ボタンの右／ログイン・日報一覧の両方）。
 function setVersionLabel(v) {
-  const el = $('verLabel');
-  if (el && v) el.textContent = 'v' + v;
+  if (!v) return;
+  ['verLabel', 'verLabelLogin'].forEach((id) => {
+    const el = $(id);
+    if (el) el.textContent = 'v' + v;
+  });
 }
 
 // 日報一覧の初期表示時に更新有無をチェックし、更新ボタンの表示を切り替える。
@@ -1119,22 +1128,24 @@ function setVersionLabel(v) {
 async function checkForUpdate() {
   if (updateBusy) return; // ダウンロード中は再チェックしない
   if (!window.appApi || !window.appApi.checkUpdate) return;
-  const btn = $('btnUpdate');
+  const btns = updateBtns();
   let r;
   try {
     r = await window.appApi.checkUpdate();
   } catch (e) {
-    btn.classList.add('hidden'); // 失敗時はボタンを出さない
+    btns.forEach((b) => b.classList.add('hidden')); // 失敗時はボタンを出さない
     return;
   }
   if (r && r.current) setVersionLabel(r.current); // 実バージョンで確定表示
   if (!r || !r.available) {
-    btn.classList.add('hidden');
+    btns.forEach((b) => b.classList.add('hidden'));
     return;
   }
   // 更新あり: ボタンを常設（任意のタイミングで更新可能）
-  btn.title = `新しいバージョン ${r.version || ''} が利用可能です（現在 ${r.current}）`;
-  btn.classList.remove('hidden');
+  btns.forEach((b) => {
+    b.title = `新しいバージョン ${r.version || ''} が利用可能です（現在 ${r.current}）`;
+    b.classList.remove('hidden');
+  });
   // 初期表示時に更新を促す。キャンセルならボタンを残してそのまま利用継続。
   // enterApp は webview の dom-ready / did-stop-loading で複数回呼ばれ得るため、
   // 確認ダイアログはこのログインセッションで一度だけに制限する（多重表示防止）。
@@ -1166,10 +1177,11 @@ async function doUpdate() {
 async function startUpdateFlow() {
   if (updateBusy || !window.appApi || !window.appApi.startUpdate) return;
   updateBusy = true;
-  const btn = $('btnUpdate');
-  btn.classList.remove('hidden');
-  btn.disabled = true;
-  btn.textContent = '⬆ 更新中…';
+  updateBtns().forEach((b) => {
+    b.classList.remove('hidden');
+    b.disabled = true;
+    b.textContent = '⬆ 更新中…';
+  });
   toast('更新をダウンロードしています…', 'ok');
   try {
     await window.appApi.startUpdate();
@@ -1181,9 +1193,10 @@ async function startUpdateFlow() {
 
 function resetUpdateBtn() {
   updateBusy = false;
-  const btn = $('btnUpdate');
-  btn.disabled = false;
-  btn.textContent = '⬆ 更新';
+  updateBtns().forEach((b) => {
+    b.disabled = false;
+    b.textContent = '⬆ 更新';
+  });
 }
 
 // メインプロセスからの更新状態通知を購読して UI へ反映する（起動時に一度だけ配線）。
@@ -1191,9 +1204,9 @@ function wireUpdateStatus() {
   if (!window.appApi || !window.appApi.onUpdateStatus) return;
   window.appApi.onUpdateStatus((s) => {
     if (!s) return;
-    const btn = $('btnUpdate');
     if (s.state === 'downloading') {
-      btn.textContent = `⬆ ${Math.round(s.percent || 0)}%`;
+      const t = `⬆ ${Math.round(s.percent || 0)}%`;
+      updateBtns().forEach((b) => (b.textContent = t));
     } else if (s.state === 'downloaded') {
       toast('ダウンロード完了。再起動して更新します。', 'ok');
       window.appApi.quitAndInstall();
@@ -1262,6 +1275,7 @@ function wire() {
   );
   $('btnClearFilter').addEventListener('click', () => clearFieldFilters());
   $('btnUpdate').addEventListener('click', () => doUpdate());
+  $('btnUpdateLogin').addEventListener('click', () => doUpdate());
   $('btnNew').addEventListener('click', () => openNewModal());
   $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
   $('btnBulkDelete').addEventListener('click', () => doBulkDelete());
@@ -1381,5 +1395,8 @@ wire();
 showAuth();
 // フッターの現在バージョン初期表示（確定値は checkForUpdate の r.current で上書き）
 if (window.appInfo) setVersionLabel(window.appInfo.version);
+// ログイン画面でも更新有無をチェックし、更新があればフッター右端に更新ボタンを表示する。
+// （GitHub Releases への照会で webview のログイン状態に依存しない）
+checkForUpdate();
 // ログイン担当者の初期値（本人自動セット前の既定。autoSetTantoOnce が確定次第上書き）
 loginTanto = { code: getVal('tanto'), name: getVal('tantoName') };

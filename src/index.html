@@ -49,7 +49,14 @@
         partition="persist:rkanri"
       ></webview>
       <div class="auth-actions">
+        <span class="auth-actions-side"></span>
         <button id="btnEnterApp" class="primary">ログインを確認してアプリを開く</button>
+        <span class="auth-actions-side auth-actions-right">
+          <button id="btnUpdateLogin" class="update-btn hidden" title="新しいバージョンに更新">
+            ⬆ 更新
+          </button>
+          <span id="verLabelLogin" class="ver-label" title="現在のバージョン"></span>
+        </span>
       </div>
     </section>
 

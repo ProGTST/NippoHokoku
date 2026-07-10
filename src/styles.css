@@ -137,8 +137,22 @@ webview {
   padding: 10px;
   border-top: 1px solid var(--border);
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 8px;
   background: var(--panel);
+}
+/* 左右のスペーサーを均等幅にして「アプリを開く」ボタンを中央維持し、
+   更新ボタン＋現在バージョンをフッター右端に寄せる。 */
+.auth-actions-side {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.auth-actions-right {
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* アプリ表示中は webview をオフスクリーンに退避（DOM 保持で executeJavaScript を維持） */
