@@ -75,6 +75,7 @@ const rk = $('rk'); // <webview>
 let webReady = false;
 let tantoAutoDone = false; // 本人自動セット（初回のみ）
 let formSnapshot = null; // 登録モーダルを開いた時点の値（リセット用）
+let copyMode = false; // コピー登録中（編集モードでコピー押下→新規化した状態）
 let viewOnly = false; // 参照のみモード（他担当者を参照許可のみで閲覧。編集系 UI を隠す）
 let pendingTantoRow = null; // 担当変更で選択中の担当者行（許可確認モーダルで確定/中断する）
 let loginTanto = null; // ログイン担当者（本人自動セットの結果。再読込でここへ戻す）
@@ -667,7 +668,7 @@ function openEditModal(row) {
   // 登録モーダルの担当者は行の担当者（メインのログイン担当者は変更しない）
   setVal('regTanto', row['担当者コード'] || getVal('tanto'));
   setVal('regTantoName', row['担当者名'] || getVal('tantoName'));
-  hideCopySource(); // コピー元の参照表示は毎回リセット
+  exitCopyMode(); // コピー登録モードは毎回リセット
   updateMode();
   takeSnapshot(); // 選択された未編集の状態（リセットの復元先）
   openModal('registModal');
@@ -683,7 +684,7 @@ function openNewModal() {
   clearForm();
   setVal('date', fmtDate(0));
   syncRegTanto();
-  hideCopySource(); // コピー元の参照表示は毎回リセット
+  exitCopyMode(); // コピー登録モードは毎回リセット
   updateMode();
   takeSnapshot(); // 新規のデフォルト表示（リセットの復元先）
   openModal('registModal');
@@ -700,7 +701,7 @@ function takeSnapshot() {
 function resetForm() {
   if (!formSnapshot) return;
   // コピー登録中は「コピー元の値に戻す」：新規モード（日報コード空）のまま入力欄を
-  // コピー元＝スナップショットの値へ戻す。コピー元パネルは表示したまま。
+  // コピー元＝スナップショットの値へ戻す。コピー登録モードは維持する。
   if (isCopyMode()) {
     SNAPSHOT_FIELDS.forEach((f) => {
       if (f !== 'nippoCd') setVal(f, formSnapshot[f]);
@@ -713,7 +714,7 @@ function resetForm() {
   // 通常（新規／修正モード）：開いた時点の状態へ復元
   // regTanto/regTantoName もスナップショットから復元するため syncRegTanto は呼ばない
   SNAPSHOT_FIELDS.forEach((f) => setVal(f, formSnapshot[f]));
-  hideCopySource();
+  exitCopyMode();
   updateMode();
   doTotal(); // 復元した日付に応じた合計を再表示
   toast('入力をリセットしました', 'ok');
@@ -723,7 +724,7 @@ function resetForm() {
 function backToEdit() {
   if (!formSnapshot) return;
   SNAPSHOT_FIELDS.forEach((f) => setVal(f, formSnapshot[f]));
-  hideCopySource();
+  exitCopyMode();
   updateMode();
   doTotal();
   toast('修正モードに戻りました', 'ok');
@@ -787,53 +788,65 @@ function updateMode() {
   if (viewOnly && isEdit) {
     badge.textContent = '参照モード';
     badge.className = 'badge view';
+  } else if (isCopyMode()) {
+    // コピー登録中（緑基調）。未登録の別日報として登録する状態
+    badge.textContent = 'コピーモード';
+    badge.className = 'badge copy';
   } else {
-    badge.textContent = isEdit ? '編集モード' : '新規モード';
+    badge.textContent = isEdit ? '修正モード' : '新規モード';
     badge.className = 'badge ' + (isEdit ? 'edit' : 'new');
   }
   $('nippoCdView').textContent = isEdit ? getVal('nippoCd') : '新規登録';
   // 登録ボタン名は新規＝「登録」／編集＝「更新」
-  $('btnRegist').textContent = isEdit ? '更新' : '登録';
+  const btnRegist = $('btnRegist');
+  btnRegist.textContent = isEdit ? '更新' : '登録';
+  // コピーモード中は登録ボタンをコピーモードボタンと同じ緑にする
+  btnRegist.classList.toggle('ok', isCopyMode());
+  btnRegist.classList.toggle('primary', !isCopyMode());
   // コピーは編集モードのみ表示（参照のみモードでは CSS で非表示）
   $('btnCopy').style.display = isEdit ? '' : 'none';
+  // コピー登録中の案内パネル（その他報告の下）
+  $('copyNotice').style.display = isCopyMode() ? '' : 'none';
 }
 
-// ---- コピー元の参照表示（登録モーダル左ブロック） -------------------------
-// 表示するのは編集後の内容ではなく、日報コードに紐づく初期表示時のデータ
-// （＝モーダルを開いた時点の formSnapshot）。入力欄と対になる項目を読み取り専用表示する。
-const COPY_SOURCE_MAP = {
-  srcDate: (s) => (s.date ? toApiDate(s.date) : ''),
-  srcTanto: (s) => [s.regTanto, s.regTantoName].filter(Boolean).join(' '),
-  srcAnkenCd: (s) => s.ankenCd,
-  srcTorihiki: (s) => s.torihikisakiMei,
-  srcAnken: (s) => s.ankenMei,
-  srcSagyoNaiyo: (s) => s.sagyoNaiyo,
-  srcSagyozikan: (s) => s.sagyozikan,
-  srcSagyoShinchoku: (s) => s.sagyoShinchoku,
-  srcOkure: (s) => s.okureHokoku,
-  srcSonota: (s) => s.sonotaHokoku
-};
-function showCopySource() {
-  const snap = formSnapshot || {};
-  Object.entries(COPY_SOURCE_MAP).forEach(([id, get]) => {
-    const el = $(id);
-    if (el) el.textContent = get(snap) ?? '';
-  });
-  $('regSource').classList.remove('hidden');
-  $('registModal').querySelector('.modal').classList.add('modal--wide');
+// ---- コピー登録モード ------------------------------------------------------
+// 編集モードでコピー押下→日報コードを空にして新規化した状態。コピー元パネルは
+// 廃止し、日報登録モーダルだけを表示したまま入力を引き継いで別日報として登録する。
+function enterCopyMode() {
+  copyMode = true;
   // コピー登録中は「戻る」を表示。リセットは「コピー元の値に戻す」動作になる。
   $('btnBack').style.display = '';
   $('btnReset').title = 'コピー元の値に戻す';
 }
-function hideCopySource() {
-  $('regSource').classList.add('hidden');
-  $('registModal').querySelector('.modal').classList.remove('modal--wide');
+function exitCopyMode() {
+  copyMode = false;
   $('btnBack').style.display = 'none';
   $('btnReset').title = '開いた時の状態に戻す';
 }
-// コピー登録中（コピー元パネル表示中）か
+// コピー登録中か
 function isCopyMode() {
-  return !$('regSource').classList.contains('hidden');
+  return copyMode;
+}
+// 修正モードからコピーモードへ切り替える際、モーダルを少し浮き上げて元へ戻して見せる。
+// アニメーション完了（＝元の位置に戻ったタイミング）で onReturn を実行し、そこで
+// コピーモードへ切り替える（切替はアニメーションの後にする）。
+function playCopyHop(onReturn) {
+  const modalEl = $('registModal').querySelector('.modal');
+  if (!modalEl) {
+    if (onReturn) onReturn();
+    return;
+  }
+  modalEl.classList.remove('copy-hop');
+  void modalEl.offsetWidth; // リフローでアニメーションを確実に再生し直す
+  modalEl.classList.add('copy-hop');
+  modalEl.addEventListener(
+    'animationend',
+    () => {
+      modalEl.classList.remove('copy-hop');
+      if (onReturn) onReturn(); // 元の位置に戻った瞬間にコピーモードへ切替
+    },
+    { once: true }
+  );
 }
 
 // 現行仕様の checkError() 相当
@@ -865,6 +878,14 @@ async function doRegist() {
   }
   const body = collectForm();
   const isNew = (body.nippoCd || '').trim() === '';
+  // 確認メッセージ: コピーモード＝コピー元の日報コードを添えて／修正モード＝更新確認
+  if (isCopyMode()) {
+    const srcCd = (formSnapshot && formSnapshot.nippoCd ? formSnapshot.nippoCd : '').trim();
+    if (!(await uiConfirm(`日報コード ${srcCd} をもとにコピー登録します。よろしいですか。`)))
+      return;
+  } else if (!isNew) {
+    if (!(await uiConfirm('修正します。よろしいですか。'))) return;
+  }
   const r = await callApi('registData', body, isNew ? '新規登録' : '更新');
   if (isBizOk(r)) {
     closeModal('registModal');
@@ -968,7 +989,7 @@ async function doBulkCopy() {
   const total = rows.length * dates.length;
   if (
     !(await uiConfirm(
-      `選択 ${rows.length} 件 × ${dates.length} 日 = ${total} 件を新規登録します。よろしいですか？`
+      `選択 ${rows.length} 件 × ${dates.length} 日 = ${total} 件 を新規登録します。よろしいですか？`
     ))
   )
     return;
@@ -1010,7 +1031,7 @@ async function doBulkDelete() {
     toast('対象の日報を選択してください', 'ng');
     return;
   }
-  if (!(await uiConfirm(`選択した ${rows.length} 件を削除します。元に戻せませんのでご注意を`)))
+  if (!(await uiConfirm(`選択した ${rows.length} 件 を削除します。元に戻せませんのでご注意を`)))
     return;
   let ok = 0,
     ng = 0;
@@ -1311,10 +1332,13 @@ function wire() {
   $('btnRegist').addEventListener('click', () => doRegist());
   $('btnDelete').addEventListener('click', () => doDelete());
   $('btnCopy').addEventListener('click', () => {
-    showCopySource(); // 左ブロックにコピー元（現在の内容）を表示
-    setVal('nippoCd', '');
-    updateMode();
-    toast('新規モードに切替（コピー元を左に表示）', 'ok');
+    // 先に浮き上げアニメを再生し、元の位置に戻ったタイミングでコピーモードへ切替
+    playCopyHop(() => {
+      enterCopyMode(); // コピー登録モードへ（日報登録モーダルはそのまま表示）
+      setVal('nippoCd', '');
+      updateMode();
+      toast('新規モードに切替（コピー登録）', 'ok');
+    });
   });
   $('btnReset').addEventListener('click', () => resetForm());
   $('btnBack').addEventListener('click', () => backToEdit());

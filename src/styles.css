@@ -419,6 +419,10 @@ button.date-btn {
   background: #ede9fe;
   color: #7c3aed;
 }
+.badge.copy {
+  background: #dcfce7;
+  color: var(--ok);
+}
 
 /* 参照のみモード: 編集系の UI を隠す（選択列・新規/一括・登録フッター） */
 body.view-only .chk,
@@ -660,6 +664,21 @@ td.chk input {
 .modal-narrow {
   width: 560px;
 }
+/* 修正モード→コピーモード切替時、モーダルを少し浮き上げて元の位置に戻して見せる */
+.modal.copy-hop {
+  animation: copy-hop 0.45s ease-in-out;
+}
+@keyframes copy-hop {
+  0% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-28px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
 .modal-head {
   display: flex;
   align-items: center;
@@ -700,15 +719,11 @@ td.chk input {
   max-height: 52vh;
 }
 
-/* 登録モーダル: コピー実行時は 左（コピー元の参照）／右（入力フォーム）に
-   本文を完全に二分割し、境界に縦線を入れる。align-items:stretch で両カラムを
-   同じ高さに揃えるため、縦線は本文（ヘッダー／フッター以外）全体に渡る。
-   コピー元非表示時は右フォームのみが通常幅で表示される。 */
+/* 登録モーダル: 入力フォームのラッパー。各コントロールの高さを基準値に固定する。 */
 .reg-split {
   display: flex;
   gap: 0;
   align-items: stretch;
-  /* 左右の行を1対1で高さを揃えるための基準値 */
   --reg-row-h: 30px; /* 単一行（入力欄・プルダウン）の高さ */
   --reg-area-h: 96px; /* テキストエリア（遅れ報告・その他報告）の高さ */
 }
@@ -716,7 +731,7 @@ td.chk input {
   flex: 1 1 0;
   min-width: 0;
 }
-/* 右フォームのコントロール高さを基準値に固定し、左ブロックの各行と揃える */
+/* フォームのコントロール高さを基準値に固定する */
 .reg-form input,
 .reg-form select {
   height: var(--reg-row-h);
@@ -724,135 +739,28 @@ td.chk input {
 .reg-form textarea {
   height: var(--reg-area-h);
 }
-/* コピー元は、入力エリア（右）を画面中央に保つため、モーダル本文の「左外側」へ絶対配置で
-   張り出す独立パネルにする。モーダル自体は通常幅（720px）のまま中央配置なので、
-   入力エリアの中央＝画面中央になる（①）。パネル幅は 260px 固定（②）だが、画面が狭くて
-   左に収まらない時は max-width で縮み、縮んだ分は overflow-x の横スクロールで確認できる（③）。
-   containing block は .modal--wide .modal-body（position:relative）。 */
-.reg-source {
-  position: absolute;
-  /* 基準は .modal（.modal--wide）。top:0/bottom:0 でモーダルと同じ高さに伸ばす。
-     内部は「ヘッダー＋本文」の縦積み。ヘッダーは .modal-head と同じ高さなので、
-     本文の各行は右の入力エリアの各行と自然に揃う（固定オフセット不要）。 */
-  top: 0;
-  bottom: 0;
-  right: 100%; /* モーダル本文の左端の、さらに外側へ張り出す */
-  width: 260px;
-  max-width: calc(50vw - 380px); /* 画面内に収める（超過分は本文の横スクロール） */
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; /* 角丸でクリップ。横スクロールは本文側だけに持たせる */
-  border-right: 1px solid var(--border); /* 入力エリアとの境界の縦線 */
-  background: #eef0f3; /* 入力エリア（白）と区別する薄いグレー */
-  border-radius: 10px 0 0 10px; /* モーダルと接する右辺は角を落とす */
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-  /* 影を右端（モーダルとの継ぎ目）で切り、モーダル側に影が出ないようにする。
-     左・上・下の外周の影は残す（負の値でその範囲を表示、右は 0 で切る）。 */
-  clip-path: inset(-60px 0 -60px -60px);
-}
-/* パネルのヘッダー（日報登録モーダルの .modal-head と同じ見た目・高さ） */
-.reg-source-head {
-  flex: 0 0 auto;
-}
-/* モーダル本体ヘッダーは ✕ ボタン、パネルヘッダーはタイトルのみで高さが僅かに違うため、
-   両方を同じ min-height に固定して本文の行位置を正確に揃える。 */
+/* 登録モーダルのヘッダー／フッターの高さを固定して見た目を安定させる。 */
 #registModal .modal-head {
   min-height: 44px;
 }
-/* フッターも同様に、本体（ボタンあり）と空のパネルフッターを同じ min-height に固定し、
-   下端をそろえる。パネル側は伸縮させない。 */
 #registModal .modal-foot {
   min-height: 50px;
 }
-.reg-source-foot {
-  flex: 0 0 auto;
-}
-/* パネル本文。ここだけを横スクロールコンテナにする（ヘッダーは固定）。
-   上パディングは modal-body と同じ 12px。左右は 14px で揃え（ヘッダーの左右パディングとも一致）、
-   ラベル左の余白と、値の右端〜区切り線の余白を対称にする。 */
-.reg-source-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 12px 14px 0 14px;
-}
-/* コピー元が縮んでも各行の値は折り返さず、はみ出し分は本文の横スクロールで見せる */
-.reg-source .frow {
-  flex-wrap: nowrap;
-}
-.reg-source.hidden {
-  display: none;
-}
-/* 左ブロックの各項目を、右フォームの対応行と同じ高さに揃える */
-.reg-source .frow {
-  min-height: var(--reg-row-h);
-}
-.reg-source .frow-area {
-  min-height: var(--reg-area-h);
-  align-items: flex-start;
-}
-/* 右フォームの遅れ報告・その他報告は、ラベルをテキストエリア上端に合わせる（中央寄せをやめる） */
+/* 遅れ報告・その他報告は、ラベルをテキストエリア上端に合わせる（中央寄せをやめる） */
 .reg-form .frow-area {
   align-items: flex-start;
 }
-/* 作業内容／作業時間／作業進捗は間隔を詰めて表示（データ幅で左詰め）。
-   「作業」ラベルは他ラベルと縦に揃えるため、既定の 74px・右揃え（.frow > label）のまま。 */
-.reg-source .frow-inline .dval {
-  flex: 0 1 auto;
-}
-/* コピー元のデータ表示（入力欄の代わりの読み取り専用ラベル） */
-.reg-source .dval {
-  flex: 1;
-  min-width: 0;
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-.reg-source .dval.multiline {
-  white-space: pre-wrap;
-}
-/* コピー元「遅れ報告」「その他報告」は表示幅を固定し、その幅で折り返す（flex の伸縮追従をやめる）。
-   高さも右フォームのテキストエリアと同じ（--reg-area-h）に固定し、あふれたら縦スクロール表示。 */
-#srcOkure,
-#srcSonota {
-  flex: 0 0 150px;
-  height: var(--reg-area-h);
-  overflow-y: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-/* コピー元「担当者名」「取引先名」「案件名」「作業内容」は固定幅・折り返しなし。指定幅を超える
-   文字は右端で見切れさせ、内箱を横スクロールコンテナにして範囲選択で見切れ部分を確認・コピーできる。 */
-#srcTanto,
-#srcTorihiki,
-#srcAnken,
-#srcSagyoNaiyo {
-  flex: 0 0 150px;
-  white-space: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none; /* Firefox */
-}
-#srcTanto::-webkit-scrollbar,
-#srcTorihiki::-webkit-scrollbar,
-#srcAnken::-webkit-scrollbar,
-#srcSagyoNaiyo::-webkit-scrollbar {
-  display: none; /* Chromium / Electron */
-}
-/* 作業内容は同じ行に作業時間・作業進捗も並ぶため、さらに狭く表示（超過分は範囲選択スクロール） */
-#srcSagyoNaiyo {
-  flex: 0 0 60px;
-}
-/* コピー表示中もモーダルは通常幅（720px）・中央配置のまま（＝入力エリアが画面中央 ①）。
-   コピー元パネルは左外側へ絶対配置で張り出すので、本文が切り取らないよう overflow:visible にし、
-   その絶対配置の基準として position:relative を与える。左辺はパネルと接続するため角を落とす。 */
-.modal--wide {
-  position: relative; /* コピー元パネル（全高）の絶対配置の基準 */
-  border-radius: 0 10px 10px 0;
-}
-.modal--wide .modal-body {
-  overflow: visible; /* 左に張り出すパネルを切り取らない */
+/* コピー登録中の案内パネル（日付の上・緑基調） */
+.copy-notice {
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--ok);
+  border-left: 4px solid var(--ok);
+  border-radius: 6px;
+  background: #f0fdf4;
+  color: #14532d;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .frow {

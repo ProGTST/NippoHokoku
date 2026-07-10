@@ -136,43 +136,12 @@
         <input id="nippoCd" type="hidden" />
         <div class="modal-body">
           <div class="reg-split">
-            <!-- 左ブロック: コピー元の参照表示（コピー実行時のみ表示。右の入力フォームと同じ項目構成） -->
-            <div id="regSource" class="reg-source hidden">
-              <!-- 日報登録モーダルと同じヘッダー。「コピー元」をタイトルとして表示 -->
-              <div class="modal-head reg-source-head">
-                <span class="modal-title">コピー元</span>
-              </div>
-              <div class="reg-source-body">
-                <div class="frow"><label>日付</label><span id="srcDate" class="dval"></span></div>
-                <div class="frow">
-                  <label>担当者</label><span id="srcTanto" class="dval"></span>
-                </div>
-                <div class="frow">
-                  <label>案件コード</label><span id="srcAnkenCd" class="dval"></span>
-                </div>
-                <div class="frow">
-                  <label>取引先名</label><span id="srcTorihiki" class="dval"></span>
-                </div>
-                <div class="frow">
-                  <label>案件名</label><span id="srcAnken" class="dval"></span>
-                </div>
-                <div class="frow frow-inline">
-                  <label>作業</label><span id="srcSagyoNaiyo" class="dval"></span>
-                  <span id="srcSagyozikan" class="dval"></span>
-                  <span id="srcSagyoShinchoku" class="dval"></span>
-                </div>
-                <div class="frow frow-area">
-                  <label>遅れ報告</label><span id="srcOkure" class="dval multiline"></span>
-                </div>
-                <div class="frow frow-area">
-                  <label>その他報告</label><span id="srcSonota" class="dval multiline"></span>
-                </div>
-              </div>
-              <!-- 何も表示しない空フッター（本体フッターと高さを揃えて下端を合わせる） -->
-              <div class="modal-foot reg-source-foot"></div>
-            </div>
-            <!-- 右ブロック: 入力フォーム（現行レイアウトのまま） -->
+            <!-- 入力フォーム -->
             <div class="reg-form">
+              <!-- コピー登録中のみ表示する案内パネル（緑基調） -->
+              <div id="copyNotice" class="copy-notice" style="display: none">
+                まだ登録されていません。この内容で問題ない場合は、登録ボタンを押してください。
+              </div>
               <div class="frow">
                 <label>日付</label>
                 <input id="date" type="date" class="w-field" />
@@ -222,7 +191,7 @@
           <span class="spacer"></span>
           <button id="btnRegist" class="primary">登録</button>
           <button id="btnDelete" class="danger">削除</button>
-          <button id="btnCopy" class="ok" title="日報コードを空にして新規化">コピー</button>
+          <button id="btnCopy" class="ok" title="日報コードを空にして新規化">コピーモード</button>
           <button id="btnReset" class="ghost" title="開いた時の状態に戻す">リセット</button>
           <button
             id="btnBack"
