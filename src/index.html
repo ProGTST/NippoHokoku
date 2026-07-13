@@ -89,6 +89,7 @@
         <button id="btnGetList">↻ 一覧更新</button>
         <button id="btnNew" class="primary">新規登録</button>
         <button id="btnBulkCopy" class="ok">一括コピー</button>
+        <button id="btnBulkEdit" class="warn">一括変更</button>
         <button id="btnBulkDelete" class="danger">一括削除</button>
         <div class="toolbar-break break-gap"></div>
         <label for="fCode">案件コード</label>
@@ -205,6 +206,64 @@
       </div>
     </div>
 
+    <!-- 一括変更 モーダル（変更 / 置換 タブ）。案件検索モーダルより前に配置して、
+         案件検索モーダルがこの上に重なるようにする（DOM 順で重なり順を制御）。 -->
+    <div id="bulkEditModal" class="modal-overlay hidden" data-close="bulkEditModal">
+      <div class="modal">
+        <div class="modal-head">
+          <span class="modal-title">一括変更</span>
+          <span class="modal-sub">選択: <b id="bulkEditCount">0</b> 件</span>
+          <button id="btnCloseBulkEdit" class="ghost" title="閉じる">✕</button>
+        </div>
+        <div class="modal-tabs">
+          <button id="btnTabChange" class="tab-btn active">変更</button>
+          <button id="btnTabReplace" class="tab-btn">置換</button>
+        </div>
+        <div class="modal-body">
+          <!-- 変更ページ（左:変更前=readonly / 右:変更後=編集可） -->
+          <div id="bulkChangePage" class="bulk-page">
+            <div id="bcGrid" class="bc-grid"></div>
+            <div class="bulk-change-note muted">
+              変更後欄の左のチェックを入れた項目のみを変更対象として上書きします。チェックされていない項目は変更しません。
+            </div>
+          </div>
+          <!-- 置換ページ -->
+          <div id="bulkReplacePage" class="bulk-page hidden">
+            <details class="bulk-replace-group">
+              <summary class="bulk-replace-title">遅れ報告</summary>
+              <div class="frow">
+                <label class="lbl-sm">置換前</label
+                ><input id="brOkureFrom" type="text" class="grow" />
+              </div>
+              <div class="frow">
+                <label class="lbl-sm">置換後</label
+                ><input id="brOkureTo" type="text" class="grow" />
+              </div>
+            </details>
+            <details class="bulk-replace-group" open>
+              <summary class="bulk-replace-title">その他報告</summary>
+              <div class="frow">
+                <label class="lbl-sm">置換前</label
+                ><input id="brSonotaFrom" type="text" class="grow" />
+              </div>
+              <div class="frow">
+                <label class="lbl-sm">置換後</label
+                ><input id="brSonotaTo" type="text" class="grow" />
+              </div>
+            </details>
+            <div class="bulk-replace-note muted">
+              選択した各日報の該当項目から「置換前」に一致する文字列を「置換後」に置き換えます。
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button id="btnBulkChangeExec" class="warn">変更</button>
+          <button id="btnBulkReplaceExec" class="warn hidden">置換</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ⑤ 案件マスタ検索モーダル -->
     <div id="ankenModal" class="modal-overlay hidden" data-close="ankenModal">
       <div class="modal modal-narrow">
@@ -297,6 +356,19 @@
         <div class="modal-foot">
           <span class="spacer"></span>
           <button id="btnBulkCopyExec" class="primary">実行</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 一括変更「複数あり」ポップアップ（選択日報ごとの項目値を確認） -->
+    <div id="bulkMultiModal" class="modal-overlay hidden" data-close="bulkMultiModal">
+      <div class="modal modal-narrow">
+        <div class="modal-head">
+          <span class="modal-title" id="bulkMultiTitle">複数あり</span>
+          <button id="btnCloseBulkMulti" class="ghost" title="閉じる">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="bulkMultiTable" class="table-wrap modal-table"></div>
         </div>
       </div>
     </div>

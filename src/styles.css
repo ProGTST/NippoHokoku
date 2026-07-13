@@ -395,6 +395,14 @@ button.ok {
 button.ok:hover {
   filter: brightness(0.93);
 }
+button.warn {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #fff;
+}
+button.warn:hover {
+  filter: brightness(0.93);
+}
 button.ghost {
   background: transparent;
 }
@@ -429,6 +437,7 @@ body.view-only .chk,
 body.view-only #btnNew,
 body.view-only #btnBulkCopy,
 body.view-only #btnBulkDelete,
+body.view-only #btnBulkEdit,
 body.view-only #btnRegist,
 body.view-only #btnDelete,
 body.view-only #btnCopy,
@@ -777,6 +786,191 @@ td.chk input {
 }
 .frow > label.lbl-sm {
   min-width: 56px;
+}
+
+/* ---- 一括変更モーダル ---- */
+#bulkEditModal .modal {
+  width: 900px;
+}
+/* タブ（変更 / 置換） */
+.modal-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tab-btn {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: #eef1f5;
+  padding: 6px 18px;
+}
+.tab-btn.active {
+  background: var(--panel);
+  color: var(--warn);
+  font-weight: 600;
+  position: relative;
+  top: 1px;
+}
+.bulk-page.hidden {
+  display: none;
+}
+/* フッターの実行ボタンは表示中のタブのものだけ（変更ページ＝変更 / 置換ページ＝置換） */
+#btnBulkChangeExec.hidden,
+#btnBulkReplaceExec.hidden {
+  display: none;
+}
+
+/* 変更ページ: 項目ラベルの下に「変更前 | 変更後」を左右等幅で並べる */
+.bc-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* 見出し・各項目の2ブロックは等幅（1fr 1fr）。境目がモーダル中央になる。 */
+.bc-header,
+.bc-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.bc-header > div {
+  text-align: center;
+  font-weight: 600;
+  color: var(--muted);
+}
+.bc-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 変更前は「ラベル｜コンポーネント」を横並び。ラベルは上寄せで先頭コンポーネントの
+   高さ（案件コード入力・テキストエリア top など）に合わせる。 */
+.bc-before {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+.bc-before > .bc-label {
+  /* 全ラベルを固定幅で統一（可変幅だと長いラベルだけコンポーネントが狭くなる）。
+     一番長い「その他報告」が収まる幅に固定し、文字は折り返さない。 */
+  flex: 0 0 76px;
+  width: 76px;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--muted);
+  /* 入力コントロールの上枠+内側余白ぶん下げて、ラベル文字を1行目のテキストに揃える */
+  padding-top: 6px;
+}
+.bc-before > .bc-ctl {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 変更後は「変更対象チェック｜コンポーネント」を横並び（チェックは上寄せ） */
+.bc-after {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+.bc-after > .bc-check {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  /* 先頭コンポーネントの1行目に高さを合わせる */
+  margin-top: 8px;
+  cursor: pointer;
+}
+.bc-after > .bc-ctl {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 変更前／変更後の各コンポーネントはブロック幅いっぱい（＝それぞれの領域に合わせて配置）。
+   変更対象チェックはより詳細度の高い .bc-after > .bc-check 側の 16px 指定が優先される。 */
+.bc-cell input,
+.bc-cell select,
+.bc-cell textarea {
+  width: 100%;
+}
+/* 変更ページ下部の注意書き */
+.bulk-change-note {
+  margin-top: 12px;
+  line-height: 1.5;
+}
+.bc-anken-row {
+  display: flex;
+  gap: 6px;
+}
+.bc-anken-row input {
+  flex: 1;
+  min-width: 0;
+}
+/* 変更前は編集不可の見た目（readonly/disabled を薄いグレーで統一） */
+.bc-before input,
+.bc-before select,
+.bc-before textarea {
+  background: #eef0f2;
+  color: #444;
+}
+.bc-before button:disabled {
+  background: #eef0f2;
+  color: #9aa1a9;
+  cursor: default;
+}
+/* 「複数あり」ボタン（オレンジ枠。テキストボックスは出さずボタンのみ） */
+.multi-btn {
+  align-self: flex-start;
+  background: #fff0d9;
+  border-color: var(--warn);
+  color: var(--warn);
+  font-weight: 600;
+}
+.multi-btn:hover {
+  background: #ffe6bf;
+}
+
+/* 「複数あり」ポップアップの一覧: 日付・日報コード列を日報一覧の案件コード列と同じ幅に固定 */
+.bulk-multi-table th:nth-child(1),
+.bulk-multi-table td:nth-child(1),
+.bulk-multi-table th:nth-child(2),
+.bulk-multi-table td:nth-child(2) {
+  width: 85px;
+  min-width: 85px;
+  max-width: 85px;
+  overflow: hidden;
+}
+
+/* 置換ページ（アコーディオン: details/summary） */
+.bulk-replace-group {
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+summary.bulk-replace-title {
+  cursor: pointer;
+  user-select: none;
+  list-style-position: inside;
+}
+/* 開いているときだけ、見出しと入力欄の間に余白を空ける */
+.bulk-replace-group[open] > summary.bulk-replace-title {
+  margin-bottom: 8px;
+}
+/* 注意書きの下余白を変更ページ（.bulk-change-note）と揃える（.frow の余分な下マージンを外す） */
+.bulk-replace-note {
+  line-height: 1.5;
+}
+.bulk-replace-title {
+  font-weight: 600;
 }
 
 /* ログイン→アプリ遷移中のマスク（既存システム画面を隠す） */

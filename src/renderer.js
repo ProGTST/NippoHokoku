@@ -23,6 +23,24 @@ const SAGYO_NAIYO = [
 ];
 const SAGYO_SHINCHOKU = ['順調', 'やや遅れ', '遅れ'];
 
+// 一括変更（変更ページ）で変更できる項目。案件は案件コード＋取引先名＋案件名をまとめて扱う。
+// key: 変更後コントロールの識別子 / col: 日報一覧行(DB)のキー / type: コントロール種別。
+const BULK_CHANGE_FIELDS = [
+  { key: 'date', label: '日付', col: '日付', type: 'date' },
+  { key: 'anken', label: '案件', col: '案件コード', type: 'anken' },
+  { key: 'sagyoNaiyo', label: '作業内容', col: '作業内容', type: 'select', options: SAGYO_NAIYO },
+  { key: 'sagyozikan', label: '作業時間', col: '作業時間', type: 'text' },
+  {
+    key: 'sagyoShinchoku',
+    label: '作業進捗',
+    col: '作業進捗',
+    type: 'select',
+    options: SAGYO_SHINCHOKU
+  },
+  { key: 'okureHokoku', label: '遅れ報告', col: '遅れ報告', type: 'textarea' },
+  { key: 'sonotaHokoku', label: 'その他報告', col: 'その他報告事項', type: 'textarea' }
+];
+
 // 登録・更新で送信する全11項目（tanto はメイン画面の状態、それ以外は登録モーダル）
 const REG_FIELDS = [
   'nippoCd',
@@ -86,6 +104,10 @@ let listFilterMode = 'month'; // 一覧の表示モード（'month'=指定月の
 let filterYear = 0; // 月表示モードで絞り込む年（初期化時に当月をセット）
 let filterMonth = 0; // 月表示モードで絞り込む月（1-12）
 const selectedNippo = new Set(); // 選択中の日報コード（一括操作用）
+let ankenTarget = 'regist'; // 案件マスタ検索の反映先（'regist'=登録モーダル / 'bulk'=一括変更）
+let bulkRows = []; // 一括変更の対象行（モーダルを開いた時点の選択スナップショット）
+let bulkAfterEls = {}; // 一括変更（変更ページ）の変更後コントロール参照（key → 要素）
+let bulkChecks = {}; // 一括変更（変更ページ）の変更対象チェックボックス参照（key → checkbox）
 
 // rkanri ページ内から、ログイン中ユーザーの担当者コード（P-XXXXXX）を拾う。
 // 対象ページは担当者コードを input に保持しているため、その値を読む。
@@ -1044,21 +1066,486 @@ async function doBulkDelete() {
   await loadList();
 }
 
+// ---- 一括変更（変更 / 置換） ---------------------------------------------
+// 選択日報を DB 値そのままの registData 送信ボディへ（更新時は日報コードをキーにする）。
+function rowToBody(r) {
+  return {
+    nippoCd: r['日報コード'] || '',
+    tanto: r['担当者コード'] || getVal('tanto'),
+    date: toApiDate(r['日付']) || '',
+    ankenCd: r['案件コード'] || '',
+    torihikisakiMei: r['取引先名'] || '',
+    ankenMei: r['案件名'] || '',
+    sagyoNaiyo: r['作業内容'] || '',
+    sagyozikan: r['作業時間'] || '',
+    sagyoShinchoku: r['作業進捗'] || '順調',
+    okureHokoku: r['遅れ報告'] || '',
+    sonotaHokoku: r['その他報告事項'] || ''
+  };
+}
+
+// 対象項目について、選択日報の中に現れる相異なる値を出現順で返す（案件は案件コードで判定）。
+function distinctFieldValues(f) {
+  const key = f.type === 'anken' ? '案件コード' : f.col;
+  const out = [];
+  const seen = new Set();
+  bulkRows.forEach((r) => {
+    const raw = r[key] ?? '';
+    const s = String(raw);
+    if (!seen.has(s)) {
+      seen.add(s);
+      out.push(raw);
+    }
+  });
+  return out;
+}
+
+// 「複数あり」ポップアップや変更前表示に使う、1 行分の項目表示文字列。
+function bulkFieldDisplay(f, r) {
+  if (f.type === 'anken') return `${r['案件コード'] || ''} ${r['案件名'] || ''}`.trim();
+  return String((f.type === 'date' ? r['日付'] : r[f.col]) ?? '');
+}
+
+function cellDiv(cls, text) {
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  return d;
+}
+function roInput() {
+  const el = document.createElement('input');
+  el.type = 'text';
+  el.readOnly = true;
+  return el;
+}
+
+// 変更前セルのコンポーネントを作る。変更後と同じ種類・同じサイズで、readonly/disabled にする。
+// 先頭選択行（bulkRows[0]）の値を表示する（全件同一の項目でのみ呼ばれる）。
+function buildBeforeControl(f, container) {
+  const first = bulkRows[0];
+  if (f.type === 'date') {
+    const el = document.createElement('input');
+    el.type = 'date';
+    el.value = toInputDate(first['日付']);
+    el.disabled = true;
+    container.appendChild(el);
+  } else if (f.type === 'anken') {
+    // 変更前は参照用のため検索ボタンは出さない（案件コードは readonly 表示のみ）
+    const cd = roInput();
+    cd.value = first['案件コード'] || '';
+    const tori = roInput();
+    tori.value = first['取引先名'] || '';
+    const anken = roInput();
+    anken.value = first['案件名'] || '';
+    container.appendChild(cd);
+    container.appendChild(tori);
+    container.appendChild(anken);
+  } else if (f.type === 'select') {
+    const el = document.createElement('select');
+    f.options.forEach((o) => el.appendChild(new Option(o, o)));
+    el.value = first[f.col] || f.options[0];
+    el.disabled = true;
+    container.appendChild(el);
+  } else if (f.type === 'text') {
+    const el = document.createElement('input');
+    el.type = 'text';
+    el.value = first[f.col] || '';
+    el.readOnly = true;
+    container.appendChild(el);
+  } else if (f.type === 'textarea') {
+    const el = document.createElement('textarea');
+    el.rows = 3;
+    el.value = first[f.col] || '';
+    el.readOnly = true;
+    container.appendChild(el);
+  }
+}
+
+// 変更後セル（編集可）を作り、ユーザーが触れた項目は bulkDirty に記録する。
+// 初期値は先頭選択行（bulkRows[0]）の値を流し込む（値が相違ありの場合も先頭行を表示）。
+// ユーザーが操作するまでは未編集（bulkDirty に入らない）＝適用対象外のまま。
+function buildAfterControl(f, container) {
+  const first = bulkRows[0];
+  // 編集したら「変更対象」チェックを自動でON（チェックが変更対象の正）
+  const markDirty = () => {
+    if (bulkChecks[f.key]) bulkChecks[f.key].checked = true;
+  };
+  if (f.type === 'date') {
+    const el = document.createElement('input');
+    el.type = 'date';
+    el.value = toInputDate(first['日付']);
+    // 日付はカレンダー入力のみ（登録モーダルと同様）
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') e.preventDefault();
+    });
+    el.addEventListener('input', markDirty);
+    el.addEventListener('change', markDirty);
+    container.appendChild(el);
+    bulkAfterEls.date = el;
+  } else if (f.type === 'anken') {
+    const cd = roInput();
+    const search = document.createElement('button');
+    search.type = 'button';
+    search.textContent = '検索';
+    search.addEventListener('click', () => openAnkenModal('bulk'));
+    const tori = roInput();
+    const anken = roInput();
+    cd.value = first['案件コード'] || '';
+    tori.value = first['取引先名'] || '';
+    anken.value = first['案件名'] || '';
+    const row1 = document.createElement('div');
+    row1.className = 'bc-anken-row';
+    row1.appendChild(cd);
+    row1.appendChild(search);
+    container.appendChild(row1);
+    container.appendChild(tori);
+    container.appendChild(anken);
+    bulkAfterEls.anken = { cd, tori, anken };
+  } else if (f.type === 'select') {
+    const el = document.createElement('select');
+    f.options.forEach((o) => el.appendChild(new Option(o, o)));
+    el.value = first[f.col] || f.options[0];
+    el.addEventListener('change', markDirty);
+    container.appendChild(el);
+    bulkAfterEls[f.key] = el;
+  } else if (f.type === 'text') {
+    const el = document.createElement('input');
+    el.type = 'text';
+    el.value = first[f.col] || '';
+    el.addEventListener('input', markDirty);
+    container.appendChild(el);
+    bulkAfterEls[f.key] = el;
+  } else if (f.type === 'textarea') {
+    const el = document.createElement('textarea');
+    el.rows = 3;
+    el.value = first[f.col] || '';
+    el.addEventListener('input', markDirty);
+    container.appendChild(el);
+    bulkAfterEls[f.key] = el;
+  }
+}
+
+// 変更ページのグリッドを選択内容から組み立てる。
+// 項目ラベルの下に「変更前 | 変更後」を左右等幅（境目＝モーダル中央）で並べる。
+function buildBulkChangeGrid() {
+  const grid = $('bcGrid');
+  grid.innerHTML = '';
+  bulkAfterEls = {};
+  bulkChecks = {};
+  // 見出し（変更前 / 変更後）
+  const header = document.createElement('div');
+  header.className = 'bc-header';
+  header.appendChild(cellDiv('', '変更前'));
+  header.appendChild(cellDiv('', '変更後'));
+  grid.appendChild(header);
+  BULK_CHANGE_FIELDS.forEach((f) => {
+    const row = document.createElement('div');
+    row.className = 'bc-row';
+    // 変更前（左にラベル、右にコンポーネント。ラベルはコンポーネントと同じ高さ）
+    const before = document.createElement('div');
+    before.className = 'bc-cell bc-before';
+    before.appendChild(cellDiv('bc-label', f.label));
+    const beforeCtl = document.createElement('div');
+    beforeCtl.className = 'bc-ctl';
+    const vals = distinctFieldValues(f);
+    if (vals.length > 1) {
+      // 値が複数ある項目はコンポーネントを出さず「複数あり」ボタンのみ
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'multi-btn';
+      btn.textContent = '複数あり';
+      btn.addEventListener('click', () => showBulkMulti(f));
+      beforeCtl.appendChild(btn);
+    } else {
+      buildBeforeControl(f, beforeCtl);
+    }
+    before.appendChild(beforeCtl);
+    // 変更後（左に変更対象チェックボックス＋コンポーネント。デフォルトOFF）
+    const after = document.createElement('div');
+    after.className = 'bc-cell bc-after';
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.className = 'bc-check';
+    chk.title = 'この項目を変更対象にする';
+    bulkChecks[f.key] = chk;
+    after.appendChild(chk);
+    const afterCtl = document.createElement('div');
+    afterCtl.className = 'bc-ctl';
+    buildAfterControl(f, afterCtl);
+    after.appendChild(afterCtl);
+    row.appendChild(before);
+    row.appendChild(after);
+    grid.appendChild(row);
+  });
+}
+
+// 「複数あり」ポップアップ: 選択日報ごとの当該項目値を一覧表示する。
+function showBulkMulti(f) {
+  $('bulkMultiTitle').textContent = `${f.label}：選択した日報の内容`;
+  const cont = $('bulkMultiTable');
+  cont.innerHTML = '';
+  const table = document.createElement('table');
+  table.className = 'bulk-multi-table';
+  const thead = document.createElement('thead');
+  const htr = document.createElement('tr');
+  ['日付', '日報コード', f.label].forEach((h) => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  bulkRows.forEach((r) => {
+    const tr = document.createElement('tr');
+    [r['日付'] || '', r['日報コード'] || '', bulkFieldDisplay(f, r)].forEach((v) => {
+      const td = document.createElement('td');
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.textContent = v;
+      td.appendChild(cell);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  cont.appendChild(table);
+  openModal('bulkMultiModal');
+}
+
+// タブ切替（変更 / 置換）。ページとフッターの実行ボタンを連動させる。
+function switchBulkTab(tab) {
+  const isChange = tab === 'change';
+  $('btnTabChange').classList.toggle('active', isChange);
+  $('btnTabReplace').classList.toggle('active', !isChange);
+  $('bulkChangePage').classList.toggle('hidden', !isChange);
+  $('bulkReplacePage').classList.toggle('hidden', isChange);
+  $('btnBulkChangeExec').classList.toggle('hidden', !isChange);
+  $('btnBulkReplaceExec').classList.toggle('hidden', isChange);
+}
+
+// 一括変更モーダルを開く（変更タブを既定表示）。
+function openBulkEdit() {
+  if (viewOnly) {
+    toast('参照のみモードでは一括変更できません', 'ng');
+    return;
+  }
+  const rows = selectedRows();
+  if (!rows.length) {
+    toast('対象の日報を選択してください', 'ng');
+    return;
+  }
+  bulkRows = rows;
+  $('bulkEditCount').textContent = String(rows.length);
+  switchBulkTab('change');
+  buildBulkChangeGrid();
+  ['brSonotaFrom', 'brSonotaTo', 'brOkureFrom', 'brOkureTo'].forEach((id) => setVal(id, ''));
+  openModal('bulkEditModal');
+}
+
+// 一括変更（変更ページ）の入力チェック。日報登録の checkError と同じ観点で、
+// 変更対象（チェックON）の項目のみを検証する。エラー文言を返す（正常なら null）。
+// 作業進捗↔遅れ報告の相関は、変更後の値を各日報へ当てた結果で判定する。
+function bulkChangeError(after, isTarget, rows) {
+  if (isTarget('date')) {
+    if (!after.date) return '日付が未入力です';
+    if (isNaN(new Date(bulkAfterEls.date.value).getDate())) return '日付が不正です';
+  }
+  if (isTarget('anken') && after.ankenCd.trim() === '') return '案件が未入力です';
+  if (isTarget('sagyoNaiyo') && after.sagyoNaiyo.trim() === '') return '作業内容が未入力です';
+  if (isTarget('sagyozikan')) {
+    if (after.sagyozikan.trim() === '') return '作業時間が未入力です';
+    if (isNaN(Number(after.sagyozikan))) return '作業時間が不正です';
+  }
+  if (isTarget('sagyoShinchoku') && after.sagyoShinchoku.trim() === '')
+    return '作業進捗が未入力です';
+  if (isTarget('sonotaHokoku') && after.sonotaHokoku.trim() === '')
+    return 'その他報告事項が未入力です';
+  // 作業進捗か遅れ報告を変更する場合のみ、各日報の変更後の値で相関チェック
+  if (isTarget('sagyoShinchoku') || isTarget('okureHokoku')) {
+    for (const r of rows) {
+      const shin = isTarget('sagyoShinchoku') ? after.sagyoShinchoku : r['作業進捗'] || '順調';
+      const okure = isTarget('okureHokoku') ? after.okureHokoku : r['遅れ報告'] || '';
+      if (shin !== '順調' && String(okure).trim() === '') {
+        return `作業進捗が順調以外の場合は遅れ報告を入力してください（日報コード: ${r['日報コード']}）`;
+      }
+    }
+  }
+  return null;
+}
+
+// 変更ページの実行: 編集した項目のみを選択日報へ適用する。
+// 各日報について、変更後の値が変更前(その日報のDB値)と異なる場合のみ登録する。
+async function doBulkChange() {
+  if (viewOnly) {
+    toast('参照のみモードでは変更できません', 'ng');
+    return;
+  }
+  const rows = bulkRows;
+  if (!rows.length) {
+    toast('対象の日報を選択してください', 'ng');
+    return;
+  }
+  // チェックONの項目のみを変更対象にする（全OFFはエラー）
+  const isTarget = (k) => !!(bulkChecks[k] && bulkChecks[k].checked);
+  if (!BULK_CHANGE_FIELDS.some((f) => isTarget(f.key))) {
+    toast('変更対象にチェックを入れてください', 'ng');
+    return;
+  }
+  // 変更対象の項目の変更後の値を集める
+  const after = {};
+  if (isTarget('date')) after.date = toApiDate(bulkAfterEls.date.value);
+  if (isTarget('anken')) {
+    after.ankenCd = bulkAfterEls.anken.cd.value;
+    after.torihikisakiMei = bulkAfterEls.anken.tori.value;
+    after.ankenMei = bulkAfterEls.anken.anken.value;
+  }
+  ['sagyoNaiyo', 'sagyozikan', 'sagyoShinchoku', 'okureHokoku', 'sonotaHokoku'].forEach((k) => {
+    if (isTarget(k)) after[k] = bulkAfterEls[k].value;
+  });
+  // 変更対象（チェックON）の項目を日報登録（checkError）と同じ観点で検証する
+  const err = bulkChangeError(after, isTarget, rows);
+  if (err) {
+    toast(err, 'ng');
+    return;
+  }
+  if (!(await uiConfirm(`選択した ${rows.length} 件に変更を適用します。よろしいですか？`))) return;
+
+  let ok = 0,
+    ng = 0,
+    skip = 0;
+  for (const r of rows) {
+    const body = rowToBody(r);
+    let changed = false;
+    if ('date' in after) {
+      if (after.date !== body.date) changed = true;
+      body.date = after.date;
+    }
+    if ('ankenCd' in after) {
+      if (after.ankenCd !== body.ankenCd) changed = true;
+      body.ankenCd = after.ankenCd;
+      body.torihikisakiMei = after.torihikisakiMei;
+      body.ankenMei = after.ankenMei;
+    }
+    ['sagyoNaiyo', 'sagyozikan', 'sagyoShinchoku', 'okureHokoku', 'sonotaHokoku'].forEach((k) => {
+      if (k in after) {
+        if (String(after[k]) !== String(body[k])) changed = true;
+        body[k] = after[k];
+      }
+    });
+    if (!changed) {
+      skip++;
+      continue;
+    }
+    const res = await callApi('registData', body, '一括変更', true);
+    if (isBizOk(res)) ok++;
+    else ng++;
+  }
+  closeModal('bulkEditModal');
+  toast(
+    `一括変更: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}${skip ? ` / 変更なし ${skip} 件` : ''}`,
+    ng ? 'ng' : 'ok'
+  );
+  await loadList();
+}
+
+// 置換ページの実行: 各日報のその他報告／遅れ報告から、置換前に一致する文字列を置換後へ置き換える。
+async function doBulkReplace() {
+  if (viewOnly) {
+    toast('参照のみモードでは置換できません', 'ng');
+    return;
+  }
+  const rows = bulkRows;
+  if (!rows.length) {
+    toast('対象の日報を選択してください', 'ng');
+    return;
+  }
+  const sFrom = getVal('brSonotaFrom');
+  const sTo = getVal('brSonotaTo');
+  const oFrom = getVal('brOkureFrom');
+  const oTo = getVal('brOkureTo');
+  // 入力チェック: 置換前は必須（空欄では実行不可）。置換後は空欄可（一致部分を削除できる）。
+  // 置換後だけ入力して置換前が空欄のグループは不可。どちらのグループも置換前が空なら実行不可。
+  const okureUsed = oFrom !== '' || oTo !== '';
+  const sonotaUsed = sFrom !== '' || sTo !== '';
+  if (!okureUsed && !sonotaUsed) {
+    toast('置換前を入力してください', 'ng');
+    return;
+  }
+  if (okureUsed && oFrom === '') {
+    toast('遅れ報告の置換前を入力してください', 'ng');
+    return;
+  }
+  if (sonotaUsed && sFrom === '') {
+    toast('その他報告の置換前を入力してください', 'ng');
+    return;
+  }
+  if (!(await uiConfirm(`選択した ${rows.length} 件のテキストを置換します。よろしいですか？`)))
+    return;
+
+  let ok = 0,
+    ng = 0,
+    skip = 0;
+  for (const r of rows) {
+    const body = rowToBody(r);
+    let changed = false;
+    if (sFrom) {
+      const nv = body.sonotaHokoku.split(sFrom).join(sTo);
+      if (nv !== body.sonotaHokoku) {
+        body.sonotaHokoku = nv;
+        changed = true;
+      }
+    }
+    if (oFrom) {
+      const nv = body.okureHokoku.split(oFrom).join(oTo);
+      if (nv !== body.okureHokoku) {
+        body.okureHokoku = nv;
+        changed = true;
+      }
+    }
+    if (!changed) {
+      skip++;
+      continue;
+    }
+    const res = await callApi('registData', body, '一括置換', true);
+    if (isBizOk(res)) ok++;
+    else ng++;
+  }
+  closeModal('bulkEditModal');
+  toast(
+    `一括置換: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}${skip ? ` / 対象なし ${skip} 件` : ''}`,
+    ng ? 'ng' : 'ok'
+  );
+  await loadList();
+}
+
 // ---- ⑤ 案件マスタ検索モーダル --------------------------------------------
-function openAnkenModal() {
+// target='bulk' で一括変更（変更後）の案件へ、既定は登録モーダルの案件へ反映する。
+function openAnkenModal(target) {
+  ankenTarget = target || 'regist';
   setVal('svalue', '');
   openModal('ankenModal');
   $('svalue').focus();
   searchAnken(false); // 初期表示は履歴を実行して表示（検索ボタンは再検索用）
 }
 async function searchAnken(withSvalue) {
-  // 案件は登録対象の担当者（登録モーダルの担当者）の履歴／検索を出す
-  const t = getVal('regTanto') || getVal('tanto');
+  // 案件は登録対象の担当者の履歴／検索を出す（一括変更は日報一覧の担当者）
+  const t = ankenTarget === 'bulk' ? getVal('tanto') : getVal('regTanto') || getVal('tanto');
   const body = withSvalue ? { tanto: t, svalue: getVal('svalue') } : { tanto: t };
   const r = await callApi('gethistory', body, withSvalue ? '案件検索' : '案件履歴');
   if (r && Array.isArray(r.data)) renderTableInto($('ankenTable'), 'gethistory', r.data, pickAnken);
 }
 function pickAnken(row) {
+  // 一括変更（変更後）の案件へ反映（案件コード＋取引先名＋案件名をまとめて更新）
+  if (ankenTarget === 'bulk' && bulkAfterEls.anken) {
+    bulkAfterEls.anken.cd.value = row['案件コード'] || '';
+    bulkAfterEls.anken.tori.value = row['取引先名'] || '';
+    bulkAfterEls.anken.anken.value = row['案件名'] || '';
+    if (bulkChecks.anken) bulkChecks.anken.checked = true; // 案件選択で変更対象ON
+    closeModal('ankenModal');
+    toast('案件を反映しました', 'ok');
+    return;
+  }
   setVal('ankenCd', row['案件コード']);
   setVal('torihikisakiMei', row['取引先名']);
   setVal('ankenMei', row['案件名']);
@@ -1300,6 +1787,15 @@ function wire() {
   $('btnNew').addEventListener('click', () => openNewModal());
   $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
   $('btnBulkDelete').addEventListener('click', () => doBulkDelete());
+  $('btnBulkEdit').addEventListener('click', () => openBulkEdit());
+
+  // 一括変更 モーダル（変更 / 置換）
+  $('btnCloseBulkEdit').addEventListener('click', () => closeModal('bulkEditModal'));
+  $('btnTabChange').addEventListener('click', () => switchBulkTab('change'));
+  $('btnTabReplace').addEventListener('click', () => switchBulkTab('replace'));
+  $('btnBulkChangeExec').addEventListener('click', () => doBulkChange());
+  $('btnBulkReplaceExec').addEventListener('click', () => doBulkReplace());
+  $('btnCloseBulkMulti').addEventListener('click', () => closeModal('bulkMultiModal'));
 
   // 一括コピー モーダル
   $('btnCloseBulkCopy').addEventListener('click', () => closeModal('bulkCopyModal'));
