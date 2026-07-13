@@ -520,12 +520,24 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
       if (typeof v === 'number' || /時間|作業時間/.test(c)) td.className = 'num';
       tr.appendChild(td);
     });
+    tr.addEventListener('mousedown', (e) => {
+      // Shift+クリックのネイティブなテキスト選択拡張を抑止（一瞬の選択表示を防ぐ）。
+      // click では mousedown 後に既に選択が描画されてしまい事後削除では間に合わないため、
+      // 選択が始まる mousedown の時点で preventDefault する。
+      if (selectable && e.shiftKey) e.preventDefault();
+    });
     tr.addEventListener('click', (e) => {
       // Shift+クリック: 起点（最後にチェック／Ctrl+クリックした行）から当該行まで範囲選択
       if (selectable && e.shiftKey) {
         const from = anchorIndex == null ? index : anchorIndex;
         const [a, b] = from <= index ? [from, index] : [index, from];
-        for (let i = a; i <= b; i++) selectedNippo.add(data[i]['日報コード']);
+        // 範囲内を反転: 未チェックはON、チェック済みはOFFにする（起点行は変えない）
+        for (let i = a; i <= b; i++) {
+          if (i === from) continue;
+          const k = data[i]['日報コード'];
+          if (selectedNippo.has(k)) selectedNippo.delete(k);
+          else selectedNippo.add(k);
+        }
         anchorIndex = index; // 起点を今回の行に更新（続けて範囲を伸ばせる）
         syncChecks();
         // Shift+クリックで生じるテキスト選択を消す（編集は開かない）
