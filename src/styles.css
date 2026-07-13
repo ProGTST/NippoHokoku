@@ -816,10 +816,125 @@ td.chk input {
 .bulk-page.hidden {
   display: none;
 }
-/* フッターの実行ボタンは表示中のタブのものだけ（変更ページ＝変更 / 置換ページ＝置換） */
+/* フッターの実行ボタンは表示中のタブのものだけ */
 #btnBulkChangeExec.hidden,
+#btnBulkIndivExec.hidden,
 #btnBulkReplaceExec.hidden {
   display: none;
+}
+
+/* 個別変更ページ: 選択日報を1画面のリスト（編集可能テーブル）で表示 */
+.bi-wrap {
+  overflow: auto;
+  max-height: 60vh;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.bi-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 12px;
+}
+.bi-table th,
+.bi-table td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 6px;
+  vertical-align: top;
+}
+.bi-table th:first-child,
+.bi-table td:first-child {
+  border-left: 1px solid var(--border);
+}
+.bi-table thead th {
+  border-top: 1px solid var(--border);
+  background: #eef1f5;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  white-space: nowrap;
+  text-align: left;
+}
+.bi-table input,
+.bi-table select,
+.bi-table textarea {
+  width: 100%;
+  font-size: 12px;
+}
+.bi-table textarea {
+  resize: vertical;
+  min-height: 42px;
+}
+/* 初期値から変更された項目（＝更新対象）を薄赤で強調 */
+.bi-table .bi-changed {
+  background: #fdeaea;
+}
+.bi-table button {
+  padding: 3px 7px;
+  flex: 0 0 auto;
+}
+/* 1段目の列幅（案件は残り幅を可変で使う） */
+.bi-table .c-date {
+  width: 122px;
+}
+.bi-table .c-naiyo {
+  width: 150px;
+}
+.bi-table .c-jikan {
+  width: 60px;
+}
+.bi-table .c-shinchoku {
+  width: 92px;
+}
+.bi-table .c-anken {
+  width: auto;
+}
+
+/* 多段明細: 各日報は 1段目(bi-r1) + 遅れ報告/その他報告 の全幅段で1ブロック */
+.bi-r1 > td {
+  border-top: 2px solid #c7ccd4; /* 日報ブロックの区切り */
+}
+.bi-r-text > td {
+  border-bottom: 1px solid var(--border);
+}
+.bi-textrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.bi-textrow > label {
+  flex: 0 0 72px;
+  color: var(--muted);
+  text-align: left;
+  padding-top: 5px;
+}
+.bi-textrow > textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 案件セル: コード＋検索＋取引先名/案件名を横並び（案件名は省略表示） */
+.bi-anken-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bi-anken-cd {
+  flex: 0 0 92px;
+  min-width: 0;
+}
+/* 案件名: 残り幅で表示し、見切れた分はドラッグ選択で横スクロールして確認（スクロールバー非表示） */
+.bi-anken-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+.bi-anken-name::-webkit-scrollbar {
+  display: none; /* Chromium / Electron */
 }
 
 /* 変更ページ: 項目ラベルの下に「変更前 | 変更後」を左右等幅で並べる */

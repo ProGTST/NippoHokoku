@@ -216,8 +216,9 @@
           <button id="btnCloseBulkEdit" class="ghost" title="閉じる">✕</button>
         </div>
         <div class="modal-tabs">
-          <button id="btnTabChange" class="tab-btn active">変更</button>
-          <button id="btnTabReplace" class="tab-btn">置換</button>
+          <button id="btnTabChange" class="tab-btn active">一括変更</button>
+          <button id="btnTabIndiv" class="tab-btn">個別変更</button>
+          <button id="btnTabReplace" class="tab-btn">一括置換</button>
         </div>
         <div class="modal-body">
           <!-- 変更ページ（左:変更前=readonly / 右:変更後=編集可） -->
@@ -225,6 +226,13 @@
             <div id="bcGrid" class="bc-grid"></div>
             <div class="bulk-change-note muted">
               変更後欄の左のチェックを入れた項目のみを変更対象として上書きします。チェックされていない項目は変更しません。
+            </div>
+          </div>
+          <!-- 個別変更ページ（選択日報を1画面のリストで個別編集） -->
+          <div id="bulkIndivPage" class="bulk-page hidden">
+            <div id="biGrid" class="bi-wrap"></div>
+            <div class="bulk-change-note muted">
+              選択した日報を1行ずつ個別に編集できます。変更した日報のみを更新します。
             </div>
           </div>
           <!-- 置換ページ -->
@@ -259,6 +267,7 @@
         <div class="modal-foot">
           <span class="spacer"></span>
           <button id="btnBulkChangeExec" class="warn">変更</button>
+          <button id="btnBulkIndivExec" class="warn hidden">変更</button>
           <button id="btnBulkReplaceExec" class="warn hidden">置換</button>
         </div>
       </div>
