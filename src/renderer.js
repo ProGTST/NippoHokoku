@@ -90,6 +90,21 @@ const qs = (sel, root) => (root || document).querySelector(sel);
 /** @param {string} sel @param {Document|Element} [root] @returns {any} */
 const qsa = (sel, root) => (root || document).querySelectorAll(sel);
 const rk = $('rk'); // <webview>
+// 実行環境: preload が注入する window.appApi の有無でデスクトップ版/ブラウザ表示版を判定する。
+const IS_BROWSER = !window.appApi;
+// ブラウザ表示版の同一オリジン API ヘルパー（ローカルサーバーの /api を叩く）。
+async function apiGet(p) {
+  const r = await fetch(p, { headers: { accept: 'application/json' } });
+  return r.json();
+}
+async function apiPost(p, body) {
+  const r = await fetch(p, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: body ? JSON.stringify(body) : '{}'
+  });
+  return r.json();
+}
 let webReady = false;
 let formSnapshot = null; // 登録モーダルを開いた時点の値（リセット用）
 let copyMode = false; // コピー登録中（編集モードでコピー押下→新規化した状態）
@@ -163,33 +178,36 @@ function sortNippoList(rows) {
 // ---- webview 状態 ---------------------------------------------------------
 // 対象ページへ遷移が確定した瞬間（描画前）にマスクで覆い、既存システム画面を見せない。
 // ログイン画面（対象外URL）ではマスクを外してログインを表示する。
-rk.addEventListener('did-navigate', (e) => {
-  if (!document.body.classList.contains('auth')) return;
-  if (isTargetUrl(e.url)) showMask();
-  else hideMask();
-});
-rk.addEventListener('dom-ready', () => {
-  webReady = true;
-  // 対象ページに戻ってきた（＝ログイン完了想定）ら、認証中なら自動でアプリ表示を試行
-  if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
-});
-// 読み込みが本当に止まった時に緑化（SSO は複数回リダイレクトするため did-stop-loading で判定）
-rk.addEventListener('did-stop-loading', () => {
-  webReady = true;
-  setConn('ok', isTargetUrl() ? '接続OK' : '読込完了');
-  if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
-  // アプリ画面での再読込完了時は、戻したログイン担当者で一覧を取り直す
-  else if (pendingListReload && isTargetUrl()) {
-    pendingListReload = false;
-    loadList();
-  }
-});
-rk.addEventListener('did-fail-load', (e) => {
-  if (e.errorCode === -3) return; // ABORTED（リダイレクト等）は無視
-  webReady = false;
-  setConn('ng', `読込失敗: ${e.errorDescription || e.errorCode}`);
-});
-rk.addEventListener('did-start-loading', () => setConn('warn', '読み込み中…'));
+// ※ ブラウザ表示版には <webview> が無いため、これらの配線はデスクトップ版のみ行う。
+if (!IS_BROWSER) {
+  rk.addEventListener('did-navigate', (e) => {
+    if (!document.body.classList.contains('auth')) return;
+    if (isTargetUrl(e.url)) showMask();
+    else hideMask();
+  });
+  rk.addEventListener('dom-ready', () => {
+    webReady = true;
+    // 対象ページに戻ってきた（＝ログイン完了想定）ら、認証中なら自動でアプリ表示を試行
+    if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
+  });
+  // 読み込みが本当に止まった時に緑化（SSO は複数回リダイレクトするため did-stop-loading で判定）
+  rk.addEventListener('did-stop-loading', () => {
+    webReady = true;
+    setConn('ok', isTargetUrl() ? '接続OK' : '読込完了');
+    if (document.body.classList.contains('auth') && isTargetUrl()) tryEnter(true);
+    // アプリ画面での再読込完了時は、戻したログイン担当者で一覧を取り直す
+    else if (pendingListReload && isTargetUrl()) {
+      pendingListReload = false;
+      loadList();
+    }
+  });
+  rk.addEventListener('did-fail-load', (e) => {
+    if (e.errorCode === -3) return; // ABORTED（リダイレクト等）は無視
+    webReady = false;
+    setConn('ng', `読込失敗: ${e.errorDescription || e.errorCode}`);
+  });
+  rk.addEventListener('did-start-loading', () => setConn('warn', '読み込み中…'));
+}
 
 function setConn(state, text) {
   const dot = $('connDot');
@@ -371,6 +389,57 @@ function clearLoginError() {
   el.classList.add('hidden');
 }
 
+// ---- ブラウザ表示版の認証フロー -------------------------------------------
+// 起動時: /api/whoami で本人を確認 → 確定していれば一覧へ、未ログインならログインボタン表示。
+async function browserBoot() {
+  showAuth();
+  let who;
+  try {
+    who = await apiGet('/api/whoami');
+  } catch (e) {
+    who = { error: 'login' };
+  }
+  await browserHandleWhoami(who);
+}
+
+// 「ログイン」押下: main が SSO ウィンドウを開き、完了後に本人を返す。
+async function browserLogin() {
+  setConn('warn', 'ログイン処理中…');
+  let who;
+  try {
+    who = await apiPost('/api/login');
+  } catch (e) {
+    who = { error: 'login' };
+  }
+  await browserHandleWhoami(who);
+}
+
+// whoami/login の結果を処理: 確定→一覧、notfound→エラー、login→ログイン待ち。
+async function browserHandleWhoami(who) {
+  if (who && who.code) {
+    clearLoginError();
+    setVal('tanto', who.code);
+    setVal('tantoName', who.name || '');
+    loginTanto = { code: who.code, name: who.name || '' };
+    syncRegTanto();
+    const r = await callApi('getNippoList', { tanto: who.code }, '日報一覧取得', true);
+    if (r && Array.isArray(r.data)) {
+      setConn('ok', '接続OK');
+      enterApp();
+      showNippoList(r.data);
+    }
+    return;
+  }
+  if (who && who.error === 'notfound') {
+    showLoginError(
+      '担当者情報が存在しないため、ログインできません。<br>上長か、管理者にお問い合わせください。'
+    );
+    return;
+  }
+  // 'login'（未ログイン）: 認証画面のままログインボタンを表示（CSS）
+  setConn('warn', '未ログイン（「ログイン」から認証してください）');
+}
+
 // ---- 中核: rkanri のページコンテキストで API を実行 -----------------------
 // webview.executeJavaScript は「対象ページのオリジン」で実行されるため、
 // same-origin fetch + Cookie(credentials) + XSRF トークンがそのまま効く。
@@ -418,17 +487,31 @@ function rawText(result) {
   return typeof d === 'string' ? d : JSON.stringify(d);
 }
 
+// API 実行の実体。デスクトップ版は webview 経由、ブラウザ版はローカルサーバー /api 経由。
+// いずれも { ok, status, data } 形の結果を返す。
+async function execApi(endpoint, body) {
+  if (IS_BROWSER) {
+    const res = await fetch('/api/' + endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    return await res.json(); // ローカルサーバーが { ok, status, data } を返す
+  }
+  return await rk.executeJavaScript(buildInjection(endpoint, body));
+}
+
 // API 実行。結果(result)を返す（テーブル描画は呼び出し側の責務）。
 // ログイン切れ/HTML 応答時は認証画面に戻し null を返す。
 // silent=true のとき成功トーストを抑制（自動処理用。エラー系は抑制しない）。
 async function callApi(endpoint, body, label, silent) {
-  if (!webReady) {
+  if (!IS_BROWSER && !webReady) {
     toast('埋め込みブラウザの準備中です。ログイン後に再度お試しください。', 'ng');
     return null;
   }
   let result;
   try {
-    result = await rk.executeJavaScript(buildInjection(endpoint, body));
+    result = await execApi(endpoint, body);
   } catch (e) {
     setStatus('実行エラー: ' + e.message);
     toast('実行エラー: ' + e.message, 'ng');
@@ -445,7 +528,12 @@ async function callApi(endpoint, body, label, silent) {
   if (typeof result.data === 'string' && /<html|<!doctype|login/i.test(result.data)) {
     setConn('warn', '未ログインの可能性');
     setStatus('ログインが必要です');
-    toast('ログインが必要です。認証画面でログインしてください。', 'ng');
+    toast(
+      IS_BROWSER
+        ? 'ログインが必要です。「ログイン」からログインしてください。'
+        : 'ログインが必要です。認証画面でログインしてください。',
+      'ng'
+    );
     showAuth();
     return null;
   }
@@ -2101,7 +2189,14 @@ function toast(msg, kind) {
 function wire() {
   // 認証画面
   $('btnEnterApp').addEventListener('click', () => tryEnter(false));
+  const btnBrowserLogin = $('btnBrowserLogin');
+  if (btnBrowserLogin) btnBrowserLogin.addEventListener('click', () => browserLogin());
   $('btnReload').addEventListener('click', () => {
+    // ブラウザ表示版は webview を持たないため一覧のみ取り直す
+    if (IS_BROWSER) {
+      if (document.body.classList.contains('app')) loadList();
+      return;
+    }
     webReady = false;
     // 再読込では日報一覧の担当者をログイン担当者に戻す
     restoreLoginTanto();
@@ -2245,8 +2340,20 @@ function wire() {
   wireUpdateStatus();
 }
 
-// ⑥ 再認証: webview セッションを消去し、Microsoft SSO のログイン画面から入り直す。
+// ⑥ 再認証: セッションを消去し、Microsoft SSO のログイン画面から入り直す。
 async function reauth() {
+  // ブラウザ表示版: ローカルサーバー経由でログアウトし、認証画面（ログインボタン）へ戻す
+  if (IS_BROWSER) {
+    try {
+      await apiPost('/api/logout');
+    } catch (e) {
+      /* noop */
+    }
+    loginTanto = null;
+    showAuth();
+    setConn('warn', '未ログイン（「ログイン」から認証してください）');
+    return;
+  }
   try {
     if (window.appApi && window.appApi.clearSession) await window.appApi.clearSession();
   } catch (e) {
@@ -2262,11 +2369,18 @@ async function reauth() {
 initSelects();
 initListFilter();
 wire();
-showAuth();
-// フッターの現在バージョン初期表示（確定値は checkForUpdate の r.current で上書き）
-if (window.appInfo) setVersionLabel(window.appInfo.version);
-// ログイン画面でも更新有無をチェックし、更新があればフッター右端に更新ボタンを表示する。
-// （GitHub Releases への照会で webview のログイン状態に依存しない）
-checkForUpdate();
-// ログイン担当者は resolveLoginTanto（メール→名称4 照合）で確定するまで未確定。
+// ログイン担当者は本人特定（メール→名称4 照合）で確定するまで未確定。
 loginTanto = null;
+
+if (IS_BROWSER) {
+  // ブラウザ表示版: <webview> や自動更新は使わず、ローカルサーバー経由で動作する。
+  document.documentElement.classList.add('browser-mode');
+  browserBoot();
+} else {
+  // デスクトップ版: 従来どおり webview で認証し、更新チェックも行う。
+  showAuth();
+  // フッターの現在バージョン初期表示（確定値は checkForUpdate の r.current で上書き）
+  if (window.appInfo) setVersionLabel(window.appInfo.version);
+  // ログイン画面でも更新有無をチェックし、更新があればフッター右端に更新ボタンを表示する。
+  checkForUpdate();
+}

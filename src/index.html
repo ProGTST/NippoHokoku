@@ -39,9 +39,14 @@
 
     <!-- ① 認証画面（webview は常時 DOM 上に保持し、アプリ画面ではオフスクリーンに退避） -->
     <section id="webHost" class="web-host">
-      <div class="web-hint">
+      <div class="web-hint sso-hint">
         対象システム（Microsoft
         SSO）にログインしてください。ログイン完了後、「ログインを確認してアプリを開く」を押してください。
+      </div>
+      <!-- ブラウザ表示版の案内（デスクトップ版では非表示） -->
+      <div class="web-hint browser-hint">
+        「ログイン」を押すと Microsoft SSO
+        のログイン画面が開きます。ログイン後、この画面に日報一覧が表示されます。
       </div>
       <div id="authError" class="auth-error hidden"></div>
       <webview
@@ -52,6 +57,7 @@
       <div class="auth-actions">
         <span class="auth-actions-side"></span>
         <button id="btnEnterApp" class="primary">ログインを確認してアプリを開く</button>
+        <button id="btnBrowserLogin" class="primary">ログイン</button>
         <span class="auth-actions-side auth-actions-right">
           <button id="btnUpdateLogin" class="update-btn hidden" title="新しいバージョンに更新">
             ⬆ 更新

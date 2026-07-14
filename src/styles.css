@@ -142,6 +142,28 @@ body.app .tanto-group {
 .auth-error.hidden {
   display: none;
 }
+
+/* ---- ブラウザ表示版（html.browser-mode）専用の出し分け ---- */
+/* 既定（デスクトップ版）ではブラウザ用の要素を隠す */
+.browser-hint {
+  display: none;
+}
+#btnBrowserLogin {
+  display: none;
+}
+/* ブラウザ版では <webview> と Microsoft SSO 案内・「アプリを開く」ボタンを隠し、
+   代わりにブラウザ用の案内とログインボタンを出す */
+html.browser-mode #rk,
+html.browser-mode .sso-hint,
+html.browser-mode #btnEnterApp {
+  display: none;
+}
+html.browser-mode .browser-hint {
+  display: block;
+}
+html.browser-mode #btnBrowserLogin {
+  display: inline-block;
+}
 webview {
   flex: 1;
   width: 100%;

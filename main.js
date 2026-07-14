@@ -1,10 +1,43 @@
-const { app, BrowserWindow, shell, ipcMain, session } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  shell,
+  ipcMain,
+  session,
+  net,
+  Tray,
+  Menu,
+  nativeImage
+} = require('electron');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
 // electron-updater は require 時に app へ触れるため、遅延取得（getUpdater）で扱う。
 const electronUpdater = require('electron-updater');
 
 const RK_PARTITION = 'persist:rkanri';
+const RK_ORIGIN = 'https://rkanri.genech.co.jp';
+
+// ---- ブラウザ表示モード（トレイ常駐＋ローカル proxy。新仕様.md §11） --------
+const LOCAL_HOST = 'nippo.local';
+const LOCAL_PORT = 80; // http://nippo.local
+const ALLOWED_HOSTS = new Set(['nippo.local', '127.0.0.1', 'localhost']);
+// ブラウザから中継してよい rkanri エンドポイントの許可リスト（任意 URL 転送は不可）
+const API_WHITELIST = new Set([
+  'getNippoList',
+  'getTotal',
+  'gethistory',
+  'getTantoList',
+  'registData',
+  'deleteData'
+]);
+let httpServer = null;
+let serverToken = ''; // 起動ごとのランダムトークン（配信 HTML に httpOnly Cookie で付与し /api で検証）
+let tray = null;
+let loginWin = null; // ブラウザ起点ログイン時に開く SSO ウィンドウ
+let isQuitting = false; // トレイ常駐: ウィンドウを閉じても終了しない（終了はトレイメニュー）
 
 let mainWindow = null;
 let autoUpdater = null; // 遅延初期化（app 準備後に一度だけ生成）
@@ -60,6 +93,398 @@ function clearIdentity() {
     fs.unlinkSync(identityPath());
   } catch (e) {
     // 無ければ何もしない
+  }
+}
+
+// ---- ブラウザ表示モード: rkanri への proxy（persist:rkanri の Cookie/XSRF 付与）----
+// ブラウザは同一オリジンの /api を叩き、main が persist:rkanri セッションで rkanri へ中継する。
+// これによりデスクトップ版の webview.executeJavaScript と同じ認証状態で API を呼べる。
+function proxyToRkanri(endpoint, bodyStr) {
+  return new Promise((resolve) => {
+    const ses = session.fromPartition(RK_PARTITION);
+    ses.cookies
+      .get({ url: RK_ORIGIN })
+      .then((cookies) => {
+        let xsrf = '';
+        const c = cookies.find((x) => x.name === 'XSRF-TOKEN');
+        if (c) {
+          try {
+            xsrf = decodeURIComponent(c.value);
+          } catch (e) {
+            xsrf = c.value;
+          }
+        }
+        const req = net.request({
+          method: 'POST',
+          url: RK_ORIGIN + '/kanri/nippo/' + endpoint,
+          session: ses,
+          useSessionCookies: true
+        });
+        req.setHeader('accept', 'application/json, text/plain, */*');
+        req.setHeader('content-type', 'application/json');
+        if (xsrf) req.setHeader('x-xsrf-token', xsrf);
+        let data = '';
+        req.on('response', (resp) => {
+          resp.on('data', (ch) => (data += ch));
+          resp.on('end', () =>
+            resolve({
+              ok: resp.statusCode >= 200 && resp.statusCode < 300,
+              status: resp.statusCode,
+              body: data
+            })
+          );
+        });
+        req.on('error', (e) =>
+          resolve({ ok: false, status: 0, body: '', error: String((e && e.message) || e) })
+        );
+        req.write(bodyStr);
+        req.end();
+      })
+      .catch((e) =>
+        resolve({ ok: false, status: 0, body: '', error: String((e && e.message) || e) })
+      );
+  });
+}
+
+// getTantoList 全件を配列で取得（未ログイン時は HTML が返るため null）。
+async function proxyGetTantoListArray() {
+  const r = await proxyToRkanri('getTantoList', JSON.stringify({ svalue: '' }));
+  if (!r.ok) return null;
+  let data;
+  try {
+    data = JSON.parse(r.body);
+  } catch (e) {
+    return null; // HTML/login 応答 → 未ログイン
+  }
+  return Array.isArray(data) ? data : null;
+}
+
+// ブラウザ表示モードの本人特定（メール→名称4 照合。renderer 版と同一ロジック）。
+async function resolveWhoami() {
+  const list = await proxyGetTantoListArray();
+  if (!list) return { error: 'login' }; // 未ログイン
+  if (capturedEmail) {
+    const local = capturedEmail.split('@')[0].trim().toLowerCase();
+    const hit = list.find(
+      (r) =>
+        String(r['名称4'] || '')
+          .trim()
+          .toLowerCase() === local
+    );
+    if (hit) {
+      const id = { email: capturedEmail, code: hit.key, name: hit['名称1'] || '' };
+      writeIdentity(id);
+      return { code: id.code, name: id.name };
+    }
+    return { error: 'notfound' }; // メールは取れたが名称4 に該当なし
+  }
+  const saved = readIdentity();
+  if (saved && saved.code) return { code: saved.code, name: saved.name || '' };
+  return { error: 'login' }; // 本人を特定できない → 対話ログインで捕捉が必要
+}
+
+// ブラウザ起点ログイン: SSO ログイン用ウィンドウ（persist:rkanri）を開き、ログイン完了を待つ。
+function openLoginWindow() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      try {
+        if (loginWin && !loginWin.isDestroyed()) loginWin.close();
+      } catch (e) {
+        /* noop */
+      }
+      loginWin = null;
+      resolve(val);
+    };
+    loginWin = new BrowserWindow({
+      width: 520,
+      height: 720,
+      title: '日報入力 ログイン',
+      autoHideMenuBar: true,
+      webPreferences: { partition: RK_PARTITION }
+    });
+    loginWin.setMenuBarVisibility(false);
+    loginWin.loadURL(RK_ORIGIN + '/kanri/nippo');
+    loginWin.webContents.on('did-stop-loading', async () => {
+      const list = await proxyGetTantoListArray();
+      if (list) finish(true); // rkanri にログイン成立
+    });
+    loginWin.on('closed', () => {
+      if (!done) {
+        done = true;
+        loginWin = null;
+        resolve(false); // ユーザーが閉じた＝ログイン中断
+      }
+    });
+    setTimeout(() => finish(false), 180000); // 安全弁（3分）
+  });
+}
+
+// POST /api/login: 対話ログインでメールを確実に捕捉するため一旦セッションを消してから開く。
+async function handleBrowserLogin() {
+  await session.fromPartition(RK_PARTITION).clearStorageData();
+  capturedEmail = null;
+  clearIdentity();
+  const ok = await openLoginWindow();
+  if (!ok) return { error: 'login' };
+  return await resolveWhoami();
+}
+
+// POST /api/logout: セッションと本人情報を破棄。
+async function handleBrowserLogout() {
+  await session.fromPartition(RK_PARTITION).clearStorageData();
+  capturedEmail = null;
+  clearIdentity();
+}
+
+// ---- ブラウザ表示モード: ローカル HTTP サーバー（127.0.0.1 限定） -----------
+function localContentType(name) {
+  if (name.endsWith('.html')) return 'text/html; charset=utf-8';
+  if (name.endsWith('.js')) return 'text/javascript; charset=utf-8';
+  if (name.endsWith('.css')) return 'text/css; charset=utf-8';
+  return 'application/octet-stream';
+}
+function hostOf(req) {
+  return String(req.headers.host || '')
+    .split(':')[0]
+    .toLowerCase();
+}
+function sendLocalJson(res, obj, status) {
+  res.writeHead(status || 200, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store'
+  });
+  res.end(JSON.stringify(obj));
+}
+function serveLocalFile(res, name) {
+  try {
+    const buf = fs.readFileSync(path.join(__dirname, 'src', name));
+    const headers = { 'content-type': localContentType(name), 'cache-control': 'no-store' };
+    // 画面配信時に httpOnly のセッショントークンを渡し、/api で検証する（他プロセス対策）
+    if (name === 'index.html')
+      headers['set-cookie'] = `nippo_token=${serverToken}; HttpOnly; SameSite=Strict; Path=/`;
+    res.writeHead(200, headers);
+    res.end(buf);
+  } catch (e) {
+    res.writeHead(404);
+    res.end('not found');
+  }
+}
+// /api 呼び出しの認可: トークン Cookie 一致＋Origin（あれば）許可ホストのみ。
+function apiAuthorized(req) {
+  const m = String(req.headers.cookie || '').match(/nippo_token=([^;]+)/);
+  if (!m || m[1] !== serverToken) return false;
+  const origin = req.headers.origin;
+  if (origin) {
+    try {
+      if (!ALLOWED_HOSTS.has(new URL(origin).hostname)) return false;
+    } catch (e) {
+      return false;
+    }
+  }
+  return true;
+}
+function readLocalBody(req) {
+  return new Promise((resolve) => {
+    let d = '';
+    req.on('data', (c) => (d += c));
+    req.on('end', () => resolve(d));
+  });
+}
+function startLocalServer() {
+  serverToken = crypto.randomBytes(24).toString('hex');
+  httpServer = http.createServer(async (req, res) => {
+    try {
+      if (!ALLOWED_HOSTS.has(hostOf(req))) {
+        res.writeHead(403);
+        res.end('forbidden');
+        return;
+      }
+      const pathname = new URL(req.url, 'http://nippo.local').pathname;
+
+      // 静的配信（UI）
+      if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html'))
+        return serveLocalFile(res, 'index.html');
+      if (req.method === 'GET' && pathname === '/renderer.js')
+        return serveLocalFile(res, 'renderer.js');
+      if (req.method === 'GET' && pathname === '/styles.css')
+        return serveLocalFile(res, 'styles.css');
+      if (req.method === 'GET' && pathname === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      // API（rkanri への proxy ＋ 本人特定/ログイン）
+      if (pathname.startsWith('/api/')) {
+        if (!apiAuthorized(req)) {
+          res.writeHead(403);
+          res.end('forbidden');
+          return;
+        }
+        const action = pathname.slice('/api/'.length);
+        if (req.method === 'GET' && action === 'whoami')
+          return sendLocalJson(res, await resolveWhoami());
+        if (req.method === 'POST' && action === 'login')
+          return sendLocalJson(res, await handleBrowserLogin());
+        if (req.method === 'POST' && action === 'logout') {
+          await handleBrowserLogout();
+          return sendLocalJson(res, { ok: true });
+        }
+        if (req.method === 'POST' && API_WHITELIST.has(action)) {
+          const body = await readLocalBody(req);
+          const pr = await proxyToRkanri(action, body || '{}');
+          let data;
+          try {
+            data = JSON.parse(pr.body);
+          } catch (e) {
+            data = pr.body; // HTML/login はそのまま渡し、renderer 側で未ログイン検出
+          }
+          return sendLocalJson(res, { ok: pr.ok, status: pr.status, data });
+        }
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      res.writeHead(404);
+      res.end('not found');
+    } catch (e) {
+      try {
+        res.writeHead(500);
+        res.end('error');
+      } catch (e2) {
+        /* noop */
+      }
+    }
+  });
+  httpServer.on('error', (e) => {
+    // 80 番が使用中等 → ブラウザ表示は無効（デスクトップ版は通常動作）
+    console.error('[nippo] local server error:', (e && e.message) || e);
+  });
+  try {
+    httpServer.listen(LOCAL_PORT, '127.0.0.1');
+  } catch (e) {
+    console.error('[nippo] local server listen failed:', (e && e.message) || e);
+  }
+}
+
+// ---- トレイ常駐 / 自動起動 / hosts 追記 -----------------------------------
+function showDesktop() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  } else {
+    createWindow();
+  }
+}
+// ブラウザ表示用 URL。hosts に nippo.local があれば nippo.local、無ければ 127.0.0.1。
+// （前提は nippo.local。管理者権限が無く hosts 追記できない環境は 127.0.0.1 で代替）
+function browserUrl() {
+  return hostsHasEntry() ? `http://${LOCAL_HOST}/` : 'http://127.0.0.1/';
+}
+function openInBrowser() {
+  shell.openExternal(browserUrl());
+}
+function setupTray() {
+  try {
+    const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.ico'));
+    tray = new Tray(icon);
+    tray.setToolTip('日報入力');
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'ブラウザで開く', click: () => openInBrowser() },
+        { label: 'デスクトップ画面を開く', click: () => showDesktop() },
+        {
+          label: 'ブラウザ表示を有効化（hosts に nippo.local を追記）',
+          click: () => ensureHostsEntry()
+        },
+        { type: 'separator' },
+        {
+          label: '終了',
+          click: () => {
+            isQuitting = true;
+            app.quit();
+          }
+        }
+      ])
+    );
+    tray.on('double-click', () => showDesktop());
+  } catch (e) {
+    console.error('[nippo] tray setup failed:', (e && e.message) || e);
+  }
+}
+function setupAutostart() {
+  try {
+    // 開発時は自動起動を登録しない
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: true, args: ['--tray'] });
+  } catch (e) {
+    /* noop */
+  }
+}
+// hosts に「127.0.0.1 nippo.local」の“有効な”行があるかを厳密判定する。
+// コメント（#）は無効とみなし、IP が 127.0.0.1 で nippo.local をホスト名トークンに
+// 含む非コメント行のみ「存在」とする（コメントアウト行は存在扱いにしない）。
+function hostsHasEntry() {
+  try {
+    const hostsPath = (process.env.SystemRoot || 'C:\\Windows') + '\\System32\\drivers\\etc\\hosts';
+    const content = fs.readFileSync(hostsPath, 'utf8');
+    return content.split(/\r?\n/).some((line) => {
+      const active = line.split('#')[0].trim(); // 行内コメントを除去
+      if (!active) return false;
+      const parts = active.split(/\s+/);
+      return (
+        parts[0] === '127.0.0.1' && parts.slice(1).some((h) => h.toLowerCase() === 'nippo.local')
+      );
+    });
+  } catch (e) {
+    return false;
+  }
+}
+// hosts に「127.0.0.1 nippo.local」を追記（管理者権限で昇格）。拒否時はブラウザ表示が無効になるだけ。
+function ensureHostsEntry() {
+  if (hostsHasEntry()) return true;
+  try {
+    const ps1 = path.join(app.getPath('userData'), 'add-nippo-hosts.ps1');
+    // 昇格側でも厳密判定（非コメントの 127.0.0.1 nippo.local 行のみ存在とみなす）。
+    const script =
+      '$h = "$env:SystemRoot\\System32\\drivers\\etc\\hosts"\r\n' +
+      'if (-not (Select-String -Path $h -Pattern \'^\\s*127\\.0\\.0\\.1\\s+([^#]*\\s)?nippo\\.local(\\s|$|#)\' -Quiet)) { Add-Content -Path $h -Value "`r`n127.0.0.1 nippo.local" }\r\n';
+    fs.writeFileSync(ps1, script, 'utf8');
+    spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        `Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1}'`
+      ],
+      { windowsHide: true, detached: true }
+    ).on('error', () => {
+      /* 昇格拒否/失敗はブラウザ表示無効で許容 */
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+// インストール／アップデート時に一度だけ hosts 追記を自動試行する。
+// マーカーをバージョン単位にすることで「新バージョン起動時に一度」再試行する。
+// 既に有効行があれば ensureHostsEntry 内でスキップ（UAC は出ない）。
+// 開発（未パッケージ）時は自動昇格しない（トレイの手動メニューから実行可能）。
+function ensureHostsEntryOnce() {
+  if (!app.isPackaged) return;
+  try {
+    if (hostsHasEntry()) return; // 既に有効 → 何もしない（UAC も出さない）
+    const marker = path.join(app.getPath('userData'), `.hosts-attempted-${app.getVersion()}`);
+    if (fs.existsSync(marker)) return; // 同バージョンで試行済み
+    fs.writeFileSync(marker, '1');
+    ensureHostsEntry();
+  } catch (e) {
+    /* noop */
   }
 }
 
@@ -181,15 +606,32 @@ ipcMain.handle('quit-and-install', () => {
   getUpdater().quitAndInstall();
 });
 
-app.whenReady().then(() => {
-  setupSsoEmailCapture(); // webview の Microsoft ログインからメールを捕捉（本人特定用）
-  createWindow();
+// トレイ常駐＋ローカルサーバーは 1 プロセスに限定する。
+// 二重起動（exe ダブルクリック等）時は、既存プロセスにデスクトップ画面を出させて終了する。
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => showDesktop());
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  app.whenReady().then(() => {
+    setupSsoEmailCapture(); // Microsoft ログインからメールを捕捉（本人特定用）
+    startLocalServer(); // ブラウザ表示モード用ローカルサーバー（http://nippo.local）
+    setupTray(); // トレイ常駐
+    setupAutostart(); // ログイン時自動起動（--tray でバックグラウンド起動）
+    ensureHostsEntryOnce(); // 初回のみ hosts に nippo.local を追記（昇格）
+
+    // --tray（自動起動）ではウィンドウを出さずバックグラウンド常駐。
+    // exe を直接起動した場合は従来どおりデスクトップ画面を表示。
+    if (!process.argv.includes('--tray')) createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) showDesktop();
+    });
   });
-});
+}
 
+// トレイ常駐のため、ウィンドウを全て閉じても終了しない（終了はトレイの「終了」から）。
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // 常駐維持（何もしない）
 });
