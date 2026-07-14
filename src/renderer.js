@@ -863,7 +863,7 @@ function updateMode() {
   btnRegist.classList.toggle('primary', !isCopyMode());
   // コピーは編集モードのみ表示（参照のみモードでは CSS で非表示）
   $('btnCopy').style.display = isEdit ? '' : 'none';
-  // コピー登録中の案内パネル（その他報告の下）
+  // コピー登録中の案内パネル（日付の上）
   $('copyNotice').style.display = isCopyMode() ? '' : 'none';
 }
 

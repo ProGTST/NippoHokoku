@@ -441,7 +441,9 @@ body.view-only #btnBulkEdit,
 body.view-only #btnRegist,
 body.view-only #btnDelete,
 body.view-only #btnCopy,
-body.view-only #btnReset {
+body.view-only #btnReset,
+/* 参照のみモードではフッタ全体を消す（個別ボタン非表示だけだと空のボタン帯が残るため）。 */
+body.view-only #registModal .modal-foot {
   display: none !important;
 }
 
