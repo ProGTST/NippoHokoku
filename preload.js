@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('appInfo', {
 // 再認証・自動更新用の IPC（メインプロセスで実行）
 contextBridge.exposeInMainWorld('appApi', {
   clearSession: () => ipcRenderer.invoke('clear-session'),
+  // 本人特定（Microsoft ログインメール捕捉 → 名称4 照合）
+  getCapturedEmail: () => ipcRenderer.invoke('get-captured-email'),
+  getIdentity: () => ipcRenderer.invoke('get-identity'),
+  setIdentity: (obj) => ipcRenderer.invoke('set-identity', obj),
+  clearIdentity: () => ipcRenderer.invoke('clear-identity'),
   // 自動更新（GitHub Releases）
   checkUpdate: () => ipcRenderer.invoke('check-update'),
   startUpdate: () => ipcRenderer.invoke('start-update'),

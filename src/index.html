@@ -18,12 +18,12 @@
           <input
             id="tanto"
             type="text"
-            value="P-000184"
+            value=""
             size="12"
             readonly
             title="担当者コード（検索から選択）"
           />
-          <input id="tantoName" type="text" value="土田歩成" readonly />
+          <input id="tantoName" type="text" value="" readonly />
           <button id="btnTantoChange" title="担当者を変更">担当変更</button>
         </div>
       </div>
@@ -43,6 +43,7 @@
         対象システム（Microsoft
         SSO）にログインしてください。ログイン完了後、「ログインを確認してアプリを開く」を押してください。
       </div>
+      <div id="authError" class="auth-error hidden"></div>
       <webview
         id="rk"
         src="https://rkanri.genech.co.jp/kanri/nippo"

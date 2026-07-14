@@ -91,7 +91,6 @@ const qs = (sel, root) => (root || document).querySelector(sel);
 const qsa = (sel, root) => (root || document).querySelectorAll(sel);
 const rk = $('rk'); // <webview>
 let webReady = false;
-let tantoAutoDone = false; // 本人自動セット（初回のみ）
 let formSnapshot = null; // 登録モーダルを開いた時点の値（リセット用）
 let copyMode = false; // コピー登録中（編集モードでコピー押下→新規化した状態）
 let viewOnly = false; // 参照のみモード（他担当者を参照許可のみで閲覧。編集系 UI を隠す）
@@ -110,17 +109,6 @@ let bulkAfterEls = {}; // 一括変更（変更ページ）の変更後コント
 let bulkChecks = {}; // 一括変更（変更ページ）の変更対象チェックボックス参照（key → checkbox）
 let indivEls = []; // 個別変更ページの行ごとのコントロール参照（[{orig, date, ...}]）
 let indivAnkenTarget = null; // 個別変更で案件検索の反映先となる行エントリ
-
-// rkanri ページ内から、ログイン中ユーザーの担当者コード（P-XXXXXX）を拾う。
-// 対象ページは担当者コードを input に保持しているため、その値を読む。
-const AUTO_TANTO_PROBE = `(() => {
-  const inputs = Array.from(document.querySelectorAll('input'));
-  for (const el of inputs) {
-    const v = (el.value || '').trim();
-    if (/^P-\\d{6}$/.test(v)) return { code: v };
-  }
-  return null;
-})()`;
 
 // ---- 初期化 ---------------------------------------------------------------
 function initSelects() {
@@ -231,6 +219,7 @@ function showAuth() {
   updatePromptShown = false; // 再ログイン時は更新確認を再度出せるように
   setConn('warn', '認証待ち（ログインしてください）');
   hideMask();
+  clearLoginError();
   updateHeaderTitle();
 }
 function enterApp() {
@@ -257,7 +246,10 @@ function updateHeaderTitle() {
   $('pageTitle').textContent = document.body.classList.contains('app') ? '日報一覧' : 'ログイン';
 }
 
-// ログイン確認 → アプリ表示。silent=true のときは失敗時トーストを抑制（自動試行用）。
+// ログイン確認 → 本人特定 → アプリ表示。silent=true のときは失敗時トーストを抑制（自動試行用）。
+let enterInFlight = false; // tryEnter の多重起動防止（did-stop-loading が複数回発火するため）
+let forcedReauthTried = false; // サイレントSSO＋永続情報なし時の強制再認証は一度だけ
+
 async function tryEnter(silent) {
   if (!webReady) {
     if (!silent) toast('埋め込みブラウザの準備中です。少し待って再度お試しください。', 'ng');
@@ -267,49 +259,116 @@ async function tryEnter(silent) {
     if (!silent) toast('先に対象システムにログインしてください。', 'ng');
     return;
   }
+  if (enterInFlight) return;
+  enterInFlight = true;
   showMask(); // 取得〜切替の間、既存システム画面を隠す
-  const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得', true);
-  if (r && Array.isArray(r.data)) {
-    enterApp();
-    showNippoList(r.data);
-    // ログイン中の本人を自動セット（初回のみ）。担当者が変わったら一覧を取り直す。
-    const changed = await autoSetTantoOnce();
-    if (changed) await loadList();
-  } else {
-    // 入れない（ログイン切れ等。callApi 内で showAuth 済みの場合あり）→ マスクを外す
-    hideMask();
+  try {
+    // 本人特定（Microsoft ログインメール → 名称4 照合）。特定できなければアプリへ入らない。
+    const id = await resolveLoginTanto();
+    if (id.error) {
+      hideMask();
+      if (id.error === 'reauth') {
+        // サイレントSSO＋永続情報なし: 対話ログインでメールを捕捉し直す
+        reauth();
+        return;
+      }
+      // notfound / noemail: 認証画面に留めてエラー表示
+      showLoginError(
+        id.error === 'notfound'
+          ? '担当者情報が存在しないため、ログインできません。<br>上長か、管理者にお問い合わせください。'
+          : 'ログイン情報を取得できませんでした。<br>「再認証」からログインし直してください。'
+      );
+      return;
+    }
+
+    // 本人確定 → 担当者を設定して一覧取得
+    setVal('tanto', id.code);
+    setVal('tantoName', id.name);
+    loginTanto = { code: id.code, name: id.name };
+    syncRegTanto();
+
+    const r = await callApi('getNippoList', { tanto: id.code }, '日報一覧取得', true);
+    if (r && Array.isArray(r.data)) {
+      clearLoginError();
+      enterApp();
+      showNippoList(r.data);
+    } else {
+      // 入れない（ログイン切れ等。callApi 内で showAuth 済みの場合あり）→ マスクを外す
+      hideMask();
+    }
+  } finally {
+    enterInFlight = false;
   }
 }
 
-// ログイン中ユーザーの担当者を自動判定してセット（初回のみ）。
-// 戻り値: 担当者コードが既定から変わったら true（呼び出し側で一覧を再取得）。
-async function autoSetTantoOnce() {
-  if (tantoAutoDone) return false;
-  tantoAutoDone = true;
-  let found = null;
+// ログイン中ユーザー本人の担当者を Microsoft ログインメール → getTantoList の名称4 照合で確定する。
+// 返り値: 成功時 { code, name }／失敗時 { error: 'notfound'|'reauth'|'noemail' }。
+async function resolveLoginTanto() {
+  // 1) 今回ログインのメール（対話ログイン時に main が捕捉。サイレントSSOでは null）
+  let email = '';
   try {
-    found = await rk.executeJavaScript(AUTO_TANTO_PROBE);
+    email = (await window.appApi?.getCapturedEmail?.()) || '';
   } catch (e) {
-    return false; // 取得失敗時は既定値のまま（各自が検索で選択）
+    email = '';
   }
-  if (!found || !found.code) return false;
+  if (email) {
+    const hit = await lookupTantoByEmail(email);
+    if (hit) {
+      // 本人確定 → 永続化（サイレントSSO の次回起動で再利用）
+      try {
+        await window.appApi?.setIdentity?.({ email, code: hit.code, name: hit.name });
+      } catch (e) {
+        /* 永続化失敗は致命ではない */
+      }
+      return hit;
+    }
+    return { error: 'notfound' }; // メールは取れたが名称4 に該当なし
+  }
+  // 2) サイレントSSO: 永続化した本人情報を再利用
+  let saved = null;
+  try {
+    saved = (await window.appApi?.getIdentity?.()) || null;
+  } catch (e) {
+    saved = null;
+  }
+  if (saved && saved.code) return { code: saved.code, name: saved.name || '' };
+  // 3) メールも永続情報も無い → 一度だけ強制再認証して対話ログインを促す
+  if (!forcedReauthTried) {
+    forcedReauthTried = true;
+    return { error: 'reauth' };
+  }
+  return { error: 'noemail' };
+}
 
-  const original = getVal('tanto');
-  setVal('tanto', found.code);
-  // 担当者名を getTantoList から解決（トーストは抑制）
-  let name = '';
-  const r = await callApi('getTantoList', { svalue: found.code }, '担当者自動判定', true);
-  if (r && Array.isArray(r.data)) {
-    const hit = r.data.find((x) => x.key === found.code);
-    if (hit) name = hit['名称1'] || '';
-  }
-  // 名前が解決できた場合のみ更新（できない場合、コードが変わったなら旧名を消す）
-  if (name) setVal('tantoName', name);
-  else if (found.code !== original) setVal('tantoName', '');
-  // 再読込で戻すためのログイン担当者を確定
-  loginTanto = { code: getVal('tanto'), name: getVal('tantoName') };
-  syncRegTanto();
-  return found.code !== original;
+// getTantoList 全件から、メールのローカル部（@ より前）＝名称4 の行を探す。
+// 返り値: { code, name } または null。
+async function lookupTantoByEmail(email) {
+  const local = String(email).split('@')[0].trim().toLowerCase();
+  if (!local) return null;
+  const r = await callApi('getTantoList', { svalue: '' }, '本人特定', true);
+  if (!r || !Array.isArray(r.data)) return null;
+  const hits = r.data.filter(
+    (x) =>
+      String(x['名称4'] || '')
+        .trim()
+        .toLowerCase() === local
+  );
+  if (!hits.length) return null;
+  return { code: hits[0].key, name: hits[0]['名称1'] || '' };
+}
+
+// 認証画面のエラー表示（メッセージに <br> を含むため innerHTML で描画）。
+function showLoginError(html) {
+  const el = $('authError');
+  if (!el) return;
+  el.innerHTML = html;
+  el.classList.remove('hidden');
+}
+function clearLoginError() {
+  const el = $('authError');
+  if (!el) return;
+  el.innerHTML = '';
+  el.classList.add('hidden');
 }
 
 // ---- 中核: rkanri のページコンテキストで API を実行 -----------------------
@@ -2193,7 +2252,7 @@ async function reauth() {
   } catch (e) {
     toast('セッション消去に失敗しました: ' + ((e && e.message) || e), 'ng');
   }
-  tantoAutoDone = false; // 次回ログイン時に本人を再判定
+  loginTanto = null; // 次回ログインで本人を取り直す（メール→名称4 照合）
   showAuth();
   webReady = false;
   rk.reload();
@@ -2209,5 +2268,5 @@ if (window.appInfo) setVersionLabel(window.appInfo.version);
 // ログイン画面でも更新有無をチェックし、更新があればフッター右端に更新ボタンを表示する。
 // （GitHub Releases への照会で webview のログイン状態に依存しない）
 checkForUpdate();
-// ログイン担当者の初期値（本人自動セット前の既定。autoSetTantoOnce が確定次第上書き）
-loginTanto = { code: getVal('tanto'), name: getVal('tantoName') };
+// ログイン担当者は resolveLoginTanto（メール→名称4 照合）で確定するまで未確定。
+loginTanto = null;

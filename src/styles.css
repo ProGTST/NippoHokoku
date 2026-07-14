@@ -128,6 +128,20 @@ body.app .tanto-group {
   background: #fff8ec;
   border-bottom: 1px solid var(--border);
 }
+/* 認証画面のログインエラー（本人特定失敗など）。メッセージは innerHTML 描画 */
+.auth-error {
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 6px;
+  text-align: center;
+}
+.auth-error.hidden {
+  display: none;
+}
 webview {
   flex: 1;
   width: 100%;

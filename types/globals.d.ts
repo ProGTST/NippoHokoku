@@ -10,6 +10,11 @@ declare global {
     };
     appApi: {
       clearSession: () => Promise<boolean>;
+      // 本人特定（Microsoft ログインメール捕捉 → 名称4 照合）
+      getCapturedEmail: () => Promise<string | null>;
+      getIdentity: () => Promise<{ email?: string; code?: string; name?: string } | null>;
+      setIdentity: (obj: { email: string; code: string; name: string }) => Promise<boolean>;
+      clearIdentity: () => Promise<boolean>;
       checkUpdate: () => Promise<{
         available: boolean;
         current: string;
