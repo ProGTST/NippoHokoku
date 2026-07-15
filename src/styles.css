@@ -143,7 +143,48 @@ body.app .tanto-group {
   display: none;
 }
 
-/* 第2フェーズ: ユーザーID手動入力（自動認証失敗時のみ表示） */
+/* 手動入力方式の案内は既定（SSO方式）では隠す */
+.manual-hint {
+  display: none;
+}
+/* 手動入力モードでは SSO 案内を隠し、手動入力案内を出す（背景は白でそろえる） */
+html.authmethod-manual .sso-hint,
+html.authmethod-manual .browser-hint {
+  display: none;
+}
+html.authmethod-manual .manual-hint {
+  display: block;
+  background: var(--panel);
+  color: var(--muted);
+}
+/* 手動入力モードでは SSO 用の「確認してアプリを開く」ボタンを隠す
+   （ブラウザ版のログインボタンは rkanri ログインのため残す） */
+html.authmethod-manual #btnEnterApp {
+  display: none;
+}
+/* 手動入力モードでは webview を画面から隠し、全面を白背景にして
+   ユーザーID入力パネルを残り領域の中央へ配置する。
+   ※ display:none にすると webview のゲストが停止し executeJavaScript
+     （getTantoList 等）が動かなくなるため、アプリ表示中と同じくオフスクリーン
+     に退避して DOM 上で生かしたまま隠す。 */
+html.authmethod-manual #rk {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1200px;
+  height: 800px;
+}
+html.authmethod-manual .web-host {
+  background: var(--panel);
+}
+html.authmethod-manual #manualAuth {
+  margin: auto; /* 上下左右の余白を自動にして中央寄せ */
+  width: min(290px, calc(100% - 36px));
+  max-width: 290px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.08);
+}
+
+/* ユーザーID手動入力の入力ブロック（自動認証失敗時／手動入力モード選択時に表示） */
 .manual-auth {
   margin: 8px 12px 0;
   padding: 12px;
@@ -154,10 +195,18 @@ body.app .tanto-group {
 .manual-auth.hidden {
   display: none;
 }
+/* パネル上部のアイコン（メッセージの上に中央寄せで表示） */
+.manual-auth-icon {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 4px auto 12px;
+}
 .manual-auth-msg {
   font-size: 13px;
   line-height: 1.5;
   margin-bottom: 8px;
+  text-align: center;
 }
 .manual-auth-row {
   display: flex;

@@ -175,41 +175,41 @@ function matchTantoByLocal(list, local) {
   );
 }
 
-// 2つのメールを前後空白・大文字小文字を無視して比較する。
-function sameEmail(a, b) {
-  return (
-    String(a || '')
-      .trim()
-      .toLowerCase() ===
-    String(b || '')
-      .trim()
-      .toLowerCase()
-  );
-}
-
-// ブラウザ表示モードの本人特定（第1フェーズ: メール→名称4 照合。renderer 版と同一ロジック）。
-// 返り値: 成功 { code, name }／未ログイン { error: 'login' }／
-//         照合不可 { error: 'manual' }（第2フェーズのユーザーID手動入力へ誘導）。
+// ブラウザ表示モードの本人特定（renderer の resolveLoginTanto と同一ロジック）。
+// ①メール→名称4 照合 → ②永続化 userId で名称4 再照合 → ③手動入力へ誘導。
+// 返り値: 成功 { code, name }／未ログイン { error: 'login' }／照合不可 { error: 'manual' }。
 async function resolveWhoami() {
   const list = await proxyGetTantoListArray();
   if (!list) return { error: 'login' }; // rkanri 未ログイン
+  // ① SSO自動照合: 今回ログインのメール（@ より前）＝名称4
   if (capturedEmail) {
-    const hit = matchTantoByLocal(list, capturedEmail.split('@')[0]);
+    const local = capturedEmail.split('@')[0];
+    const hit = matchTantoByLocal(list, local);
     if (hit) {
-      const id = { email: capturedEmail, code: hit.key, name: hit['名称1'] || '' };
-      writeIdentity(id);
-      return { code: id.code, name: id.name };
+      writeIdentity({
+        email: capturedEmail,
+        code: hit.key,
+        name: hit['名称1'] || '',
+        userId: local
+      });
+      return { code: hit.key, name: hit['名称1'] || '' };
     }
-    // 名称4 と一致せず。過去に同一メールで手動確定済みなら再利用（次回以降の自動認証）。
-    const saved = readIdentity();
-    if (saved && saved.code && sameEmail(saved.email, capturedEmail)) {
-      return { code: saved.code, name: saved.name || '' };
-    }
-    return { error: 'manual' }; // 第2フェーズ（手動入力）へ
   }
+  // ② 永続化 userId（前回SSO/手動の確定値）で現在のマスタを再照合
   const saved = readIdentity();
-  if (saved && saved.code) return { code: saved.code, name: saved.name || '' };
-  // rkanri にはログイン済みだがメール未捕捉・永続情報なし → 第2フェーズ（手動入力）へ
+  if (saved && saved.userId) {
+    const hit = matchTantoByLocal(list, saved.userId);
+    if (hit) {
+      writeIdentity({
+        email: capturedEmail || saved.email || '',
+        code: hit.key,
+        name: hit['名称1'] || '',
+        userId: saved.userId
+      });
+      return { code: hit.key, name: hit['名称1'] || '' };
+    }
+  }
+  // ③ 自動照合できず → 手動入力へ（rkanri にはログイン済み）
   return { error: 'manual' };
 }
 
@@ -292,6 +292,7 @@ function localContentType(name) {
   if (name.endsWith('.html')) return 'text/html; charset=utf-8';
   if (name.endsWith('.js')) return 'text/javascript; charset=utf-8';
   if (name.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (name.endsWith('.png')) return 'image/png';
   return 'application/octet-stream';
 }
 function hostOf(req) {
@@ -359,6 +360,7 @@ function startLocalServer() {
         return serveLocalFile(res, 'renderer.js');
       if (req.method === 'GET' && pathname === '/styles.css')
         return serveLocalFile(res, 'styles.css');
+      if (req.method === 'GET' && pathname === '/icon.png') return serveLocalFile(res, 'icon.png');
       if (req.method === 'GET' && pathname === '/favicon.ico') {
         res.writeHead(204);
         res.end();

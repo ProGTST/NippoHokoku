@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:;"
     />
     <title>日報入力</title>
     <link rel="stylesheet" href="styles.css" />
@@ -48,10 +48,16 @@
         「ログイン」を押すと Microsoft SSO
         のログイン画面が開きます。ログイン後、この画面に日報一覧が表示されます。
       </div>
+      <!-- 手動入力の案内（SSO認証済みだが名称4 で本人特定できなかった時に表示） -->
+      <div class="web-hint manual-hint">
+        SSO認証できましたが、担当者情報が見つかりませんでした。<br />
+        ユーザーIDを入力して「認証」を押してください。
+      </div>
       <div id="authError" class="auth-error hidden"></div>
-      <!-- 第2フェーズ: 自動認証（メール→名称4 照合）失敗時のユーザーID手動入力 -->
+      <!-- ユーザーID手動入力（自動認証失敗時のフォールバック／手動入力モードの入力欄） -->
       <div id="manualAuth" class="manual-auth hidden">
-        <div class="manual-auth-msg">
+        <img class="manual-auth-icon" src="icon.png" alt="" />
+        <div id="manualAuthMsg" class="manual-auth-msg">
           自動認証できませんでした。ユーザーIDを入力して認証してください。
         </div>
         <div class="manual-auth-row">
