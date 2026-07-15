@@ -143,6 +143,34 @@ body.app .tanto-group {
   display: none;
 }
 
+/* 第2フェーズ: ユーザーID手動入力（自動認証失敗時のみ表示） */
+.manual-auth {
+  margin: 8px 12px 0;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.manual-auth.hidden {
+  display: none;
+}
+.manual-auth-msg {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.manual-auth-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.manual-auth-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+
 /* ---- ブラウザ表示版（html.browser-mode）専用の出し分け ---- */
 /* 既定（デスクトップ版）ではブラウザ用の要素を隠す */
 .browser-hint {

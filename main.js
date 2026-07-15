@@ -159,28 +159,76 @@ async function proxyGetTantoListArray() {
   return Array.isArray(data) ? data : null;
 }
 
-// ブラウザ表示モードの本人特定（メール→名称4 照合。renderer 版と同一ロジック）。
-async function resolveWhoami() {
-  const list = await proxyGetTantoListArray();
-  if (!list) return { error: 'login' }; // 未ログイン
-  if (capturedEmail) {
-    const local = capturedEmail.split('@')[0].trim().toLowerCase();
-    const hit = list.find(
+// getTantoList 全件から、指定ローカル値（メールの @ より前 or 手動ユーザーID）＝名称4 の行を探す。
+function matchTantoByLocal(list, local) {
+  local = String(local || '')
+    .trim()
+    .toLowerCase();
+  if (!local) return null;
+  return (
+    list.find(
       (r) =>
         String(r['名称4'] || '')
           .trim()
           .toLowerCase() === local
-    );
+    ) || null
+  );
+}
+
+// 2つのメールを前後空白・大文字小文字を無視して比較する。
+function sameEmail(a, b) {
+  return (
+    String(a || '')
+      .trim()
+      .toLowerCase() ===
+    String(b || '')
+      .trim()
+      .toLowerCase()
+  );
+}
+
+// ブラウザ表示モードの本人特定（第1フェーズ: メール→名称4 照合。renderer 版と同一ロジック）。
+// 返り値: 成功 { code, name }／未ログイン { error: 'login' }／
+//         照合不可 { error: 'manual' }（第2フェーズのユーザーID手動入力へ誘導）。
+async function resolveWhoami() {
+  const list = await proxyGetTantoListArray();
+  if (!list) return { error: 'login' }; // rkanri 未ログイン
+  if (capturedEmail) {
+    const hit = matchTantoByLocal(list, capturedEmail.split('@')[0]);
     if (hit) {
       const id = { email: capturedEmail, code: hit.key, name: hit['名称1'] || '' };
       writeIdentity(id);
       return { code: id.code, name: id.name };
     }
-    return { error: 'notfound' }; // メールは取れたが名称4 に該当なし
+    // 名称4 と一致せず。過去に同一メールで手動確定済みなら再利用（次回以降の自動認証）。
+    const saved = readIdentity();
+    if (saved && saved.code && sameEmail(saved.email, capturedEmail)) {
+      return { code: saved.code, name: saved.name || '' };
+    }
+    return { error: 'manual' }; // 第2フェーズ（手動入力）へ
   }
   const saved = readIdentity();
   if (saved && saved.code) return { code: saved.code, name: saved.name || '' };
-  return { error: 'login' }; // 本人を特定できない → 対話ログインで捕捉が必要
+  // rkanri にはログイン済みだがメール未捕捉・永続情報なし → 第2フェーズ（手動入力）へ
+  return { error: 'manual' };
+}
+
+// 第2フェーズ: 手動入力したユーザーIDで本人を確定する。
+// 成功時は手動ユーザーIDを含めて永続化し（次回以降の自動認証）、{ code, name } を返す。
+// 該当なしは { error: 'notfound' }、rkanri 未ログインは { error: 'login' }。
+async function handleManualLogin(userId) {
+  const list = await proxyGetTantoListArray();
+  if (!list) return { error: 'login' };
+  const hit = matchTantoByLocal(list, userId);
+  if (!hit) return { error: 'notfound' };
+  const id = {
+    email: capturedEmail || '',
+    code: hit.key,
+    name: hit['名称1'] || '',
+    userId: String(userId).trim()
+  };
+  writeIdentity(id);
+  return { code: id.code, name: id.name };
 }
 
 // ブラウザ起点ログイン: SSO ログイン用ウィンドウ（persist:rkanri）を開き、ログイン完了を待つ。
@@ -329,6 +377,16 @@ function startLocalServer() {
           return sendLocalJson(res, await resolveWhoami());
         if (req.method === 'POST' && action === 'login')
           return sendLocalJson(res, await handleBrowserLogin());
+        if (req.method === 'POST' && action === 'manual-login') {
+          const body = await readLocalBody(req);
+          let uid = '';
+          try {
+            uid = (JSON.parse(body || '{}').userId || '').toString();
+          } catch (e) {
+            uid = '';
+          }
+          return sendLocalJson(res, await handleManualLogin(uid));
+        }
         if (req.method === 'POST' && action === 'logout') {
           await handleBrowserLogout();
           return sendLocalJson(res, { ok: true });

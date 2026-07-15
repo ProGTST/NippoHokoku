@@ -49,6 +49,22 @@
         のログイン画面が開きます。ログイン後、この画面に日報一覧が表示されます。
       </div>
       <div id="authError" class="auth-error hidden"></div>
+      <!-- 第2フェーズ: 自動認証（メール→名称4 照合）失敗時のユーザーID手動入力 -->
+      <div id="manualAuth" class="manual-auth hidden">
+        <div class="manual-auth-msg">
+          自動認証できませんでした。ユーザーIDを入力して認証してください。
+        </div>
+        <div class="manual-auth-row">
+          <input
+            id="manualUserId"
+            type="text"
+            placeholder="ユーザーID（例: tanakat）"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="btnManualAuth" class="primary">認証</button>
+        </div>
+      </div>
       <webview
         id="rk"
         src="https://rkanri.genech.co.jp/kanri/nippo"

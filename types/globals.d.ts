@@ -12,8 +12,19 @@ declare global {
       clearSession: () => Promise<boolean>;
       // 本人特定（Microsoft ログインメール捕捉 → 名称4 照合）
       getCapturedEmail: () => Promise<string | null>;
-      getIdentity: () => Promise<{ email?: string; code?: string; name?: string } | null>;
-      setIdentity: (obj: { email: string; code: string; name: string }) => Promise<boolean>;
+      getIdentity: () => Promise<{
+        email?: string;
+        code?: string;
+        name?: string;
+        userId?: string;
+      } | null>;
+      // userId は第2フェーズ（手動入力）で確定したユーザーID（自動照合時は無し）。
+      setIdentity: (obj: {
+        email: string;
+        code: string;
+        name: string;
+        userId?: string;
+      }) => Promise<boolean>;
       clearIdentity: () => Promise<boolean>;
       checkUpdate: () => Promise<{
         available: boolean;
