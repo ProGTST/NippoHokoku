@@ -2511,6 +2511,11 @@ async function reauth() {
   loginTanto = null; // 次回ログインで本人を取り直す（メール→名称4 照合）
   showAuth();
   webReady = false;
+  // 再読込でログイン画面（対象外URL）へ遷移するまで、直前まで表示していた
+  // 日報画面（webview の旧コンテンツ）が一瞬見えないようマスクで覆う。
+  // showAuth() が hideMask() を呼ぶため、その後にマスクを出す必要がある。
+  // ログイン画面へ遷移すると did-navigate が hideMask() でマスクを外す。
+  showMask();
   rk.reload();
 }
 
