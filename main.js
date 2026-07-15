@@ -7,7 +7,8 @@ const {
   net,
   Tray,
   Menu,
-  nativeImage
+  nativeImage,
+  Notification
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -22,7 +23,10 @@ const RK_ORIGIN = 'https://rkanri.genech.co.jp';
 
 // ---- ブラウザ表示モード（トレイ常駐＋ローカル proxy。新仕様.md §11） --------
 const LOCAL_HOST = 'nippo.local';
-const LOCAL_PORT = 80; // http://nippo.local
+// ブラウザ表示用ポート。先頭から順に試し、確保できたものを使う。
+// 80 が Docker/WSL 等（Go 製 HTTP サーバー）に奪われている環境では 8090 にフォールバックする。
+const LOCAL_PORTS = [80, 8090];
+let activePort = null; // 実際に確保できたポート（全滅時は null＝ブラウザ表示は無効）
 const ALLOWED_HOSTS = new Set(['nippo.local', '127.0.0.1', 'localhost']);
 // ブラウザから中継してよい rkanri エンドポイントの許可リスト（任意 URL 転送は不可）
 const API_WHITELIST = new Set([
@@ -419,14 +423,43 @@ function startLocalServer() {
       }
     }
   });
-  httpServer.on('error', (e) => {
-    // 80 番が使用中等 → ブラウザ表示は無効（デスクトップ版は通常動作）
-    console.error('[nippo] local server error:', (e && e.message) || e);
+  // 確保できたポートを記録する（browserUrl はこのポートで URL を生成する）。
+  httpServer.on('listening', () => {
+    const addr = httpServer.address();
+    activePort = addr && typeof addr === 'object' ? addr.port : null;
+    console.log('[nippo] local server listening on 127.0.0.1:' + activePort);
   });
+  // ポート競合（EADDRINUSE）は次の候補へフォールバックし、全滅したらブラウザ表示を無効化して通知する。
+  // listen 失敗は同期例外ではなく 'error' イベントで飛ぶため、ここで一元的に扱う。
+  let portIndex = 0;
+  httpServer.on('error', (e) => {
+    const code = e && /** @type {any} */ (e).code;
+    if (code === 'EADDRINUSE' && portIndex < LOCAL_PORTS.length - 1) {
+      const busy = LOCAL_PORTS[portIndex];
+      portIndex += 1;
+      const next = LOCAL_PORTS[portIndex];
+      console.error(`[nippo] port ${busy} in use, retrying on ${next}`);
+      httpServer.listen(next, '127.0.0.1'); // 同一 server で次候補を再試行
+      return;
+    }
+    // 全候補が使用中 → デスクトップ版は動くが、ブラウザ表示は利用不可。
+    activePort = null;
+    console.error('[nippo] local server error:', (e && e.message) || e);
+    notifyBrowserUnavailable();
+  });
+  httpServer.listen(LOCAL_PORTS[0], '127.0.0.1');
+}
+// ①: ブラウザ表示が使えないことをユーザーへ通知する（無言失敗を避ける）。
+function notifyBrowserUnavailable() {
   try {
-    httpServer.listen(LOCAL_PORT, '127.0.0.1');
+    new Notification({
+      title: '日報入力：ブラウザ表示は利用できません',
+      body:
+        `ポート ${LOCAL_PORTS.join(' / ')} が他アプリ（Docker/WSL 等）に使用されているため、` +
+        'ブラウザ表示を無効化しました。デスクトップ画面はそのままご利用いただけます。'
+    }).show();
   } catch (e) {
-    console.error('[nippo] local server listen failed:', (e && e.message) || e);
+    console.error('[nippo] notify failed:', (e && e.message) || e);
   }
 }
 
@@ -441,11 +474,21 @@ function showDesktop() {
   }
 }
 // ブラウザ表示用 URL。hosts に nippo.local があれば nippo.local、無ければ 127.0.0.1。
-// （前提は nippo.local。管理者権限が無く hosts 追記できない環境は 127.0.0.1 で代替）
+// 実際に確保したポート（80 なら省略、8090 等なら :ポートを付与）を反映する。
+// ②: 80 が奪われ 8090 で待ち受けている場合、nippo.local も :8090 を付けないと
+//     暗黙の 80 番＝競合相手（Docker 等）に繋がってしまうため必ずポートを揃える。
 function browserUrl() {
-  return hostsHasEntry() ? `http://${LOCAL_HOST}/` : 'http://127.0.0.1/';
+  const port = activePort || LOCAL_PORTS[0];
+  const suffix = port === 80 ? '' : ':' + port;
+  const host = hostsHasEntry() ? LOCAL_HOST : '127.0.0.1';
+  return `http://${host}${suffix}/`;
 }
 function openInBrowser() {
+  // サーバーが確保できていなければ開いても競合相手の 404 に繋がるだけなので通知に留める。
+  if (!activePort) {
+    notifyBrowserUnavailable();
+    return;
+  }
   shell.openExternal(browserUrl());
 }
 function setupTray() {
@@ -511,7 +554,10 @@ function ensureHostsEntry() {
     // 昇格側でも厳密判定（非コメントの 127.0.0.1 nippo.local 行のみ存在とみなす）。
     const script =
       '$h = "$env:SystemRoot\\System32\\drivers\\etc\\hosts"\r\n' +
-      'if (-not (Select-String -Path $h -Pattern \'^\\s*127\\.0\\.0\\.1\\s+([^#]*\\s)?nippo\\.local(\\s|$|#)\' -Quiet)) { Add-Content -Path $h -Value "`r`n127.0.0.1 nippo.local" }\r\n';
+      'if (-not (Select-String -Path $h -Pattern \'^\\s*127\\.0\\.0\\.1\\s+([^#]*\\s)?nippo\\.local(\\s|$|#)\' -Quiet)) { Add-Content -Path $h -Value "`r`n127.0.0.1 nippo.local  # nippo-desktop-app (browser view) - safe to remove" }\r\n';
+    // 追記コメントは ASCII のみにする。.ps1 は BOM 無し UTF-8 で書き出すため、
+    // 日本語を混ぜると PowerShell 5.1 が ANSI と誤解して文字化けする。
+    // 由来が分かるよう nippo-desktop を明記し、不要時に削除してよい旨を添える。
     fs.writeFileSync(ps1, script, 'utf8');
     spawn(
       'powershell.exe',
@@ -520,7 +566,9 @@ function ensureHostsEntry() {
         '-ExecutionPolicy',
         'Bypass',
         '-Command',
-        `Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1}'`
+        // PowerShell のシングルクォート文字列に埋め込むため ' を '' でエスケープする。
+        // userData パス（＝Windows ユーザー名）に ' が含まれても壊れず、注入もされない。
+        `Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1.replace(/'/g, "''")}'`
       ],
       { windowsHide: true, detached: true }
     ).on('error', () => {
