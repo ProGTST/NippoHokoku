@@ -32,7 +32,7 @@
         <span id="connText">認証待ち…</span>
         <button id="btnReload" class="ghost" title="rkanriページを再読み込み">↻ 再読込</button>
         <button id="btnReauth" class="ghost" title="セッションを消去してログインし直す">
-          再認証
+          サインアウト
         </button>
       </div>
     </header>
@@ -41,24 +41,24 @@
     <section id="webHost" class="web-host">
       <div class="web-hint sso-hint">
         対象システム（Microsoft
-        SSO）にログインしてください。ログイン完了後、「ログインを確認してアプリを開く」を押してください。
+        SSO）にログインしてください。ログイン完了後、「日報一覧へ」を押してください。
       </div>
       <!-- ブラウザ表示版の案内（デスクトップ版では非表示） -->
       <div class="web-hint browser-hint">
-        「ログイン」を押すと Microsoft SSO
+        「SSO認証」を押すと Microsoft SSO
         のログイン画面が開きます。ログイン後、この画面に日報一覧が表示されます。
       </div>
       <!-- 手動入力の案内（SSO認証済みだが名称4 で本人特定できなかった時に表示） -->
       <div class="web-hint manual-hint">
         SSO認証できましたが、担当者情報が見つかりませんでした。<br />
-        ユーザーIDを入力して「認証」を押してください。
+        ユーザーIDを入力して「再認証」を押してください。
       </div>
       <div id="authError" class="auth-error hidden"></div>
       <!-- ユーザーID手動入力（自動認証失敗時のフォールバック／手動入力モードの入力欄） -->
       <div id="manualAuth" class="manual-auth hidden">
         <img class="manual-auth-icon" src="icon.png" alt="" />
         <div id="manualAuthMsg" class="manual-auth-msg">
-          自動認証できませんでした。ユーザーIDを入力して認証してください。
+          自動認証できませんでした。ユーザーIDを入力して再認証してください。
         </div>
         <div class="manual-auth-row">
           <input
@@ -68,7 +68,7 @@
             autocomplete="off"
             spellcheck="false"
           />
-          <button id="btnManualAuth" class="primary">認証</button>
+          <button id="btnManualAuth" class="primary">再認証</button>
         </div>
       </div>
       <webview
@@ -78,8 +78,8 @@
       ></webview>
       <div class="auth-actions">
         <span class="auth-actions-side"></span>
-        <button id="btnEnterApp" class="primary">ログインを確認してアプリを開く</button>
-        <button id="btnBrowserLogin" class="primary">ログイン</button>
+        <button id="btnEnterApp" class="primary">日報一覧へ</button>
+        <button id="btnBrowserLogin" class="primary">SSO認証</button>
         <span class="auth-actions-side auth-actions-right">
           <button id="btnUpdateLogin" class="update-btn hidden" title="新しいバージョンに更新">
             ⬆ 更新

@@ -252,7 +252,7 @@ function openLoginWindow() {
     };
     loginWin = new BrowserWindow({
       width: 520,
-      height: 720,
+      height: 540,
       title: '日報入力 ログイン',
       autoHideMenuBar: true,
       webPreferences: { partition: RK_PARTITION }

@@ -209,7 +209,8 @@ if (!IS_BROWSER) {
   rk.addEventListener('did-fail-load', (e) => {
     if (e.errorCode === -3) return; // ABORTED（リダイレクト等）は無視
     webReady = false;
-    setConn('ng', `読込失敗: ${e.errorDescription || e.errorCode}`);
+    console.error('[nippo] webview 読込失敗:', e.errorDescription || e.errorCode);
+    setConn('ng', '読込失敗');
   });
   rk.addEventListener('did-start-loading', () => setConn('warn', '読み込み中…'));
 }
@@ -240,7 +241,7 @@ function hideMask() {
 function showAuth() {
   document.body.className = 'auth';
   updatePromptShown = false; // 再ログイン時は更新確認を再度出せるように
-  setConn('warn', '認証待ち（ログインしてください）');
+  setConn('warn', '認証待ち');
   hideMask();
   clearLoginError();
   applyAuthMethod(); // 選択中の認証方式（SSO/手動）に応じてタブ・入力欄の表示を復元
@@ -510,7 +511,7 @@ async function submitManualId() {
       return;
     }
     if (who && who.error === 'login') {
-      toast('ログインが必要です。「ログイン」からログインしてください。', 'ng');
+      toast('ログインが必要です。「SSO認証」からログインしてください。', 'ng');
       return;
     }
     showLoginError(NO_TANTO_MSG);
@@ -571,12 +572,12 @@ async function browserHandleWhoami(who) {
   }
   // 第1フェーズ失敗（メール→名称4 照合不可）→ 第2フェーズ（ユーザーID手動入力）へ。
   if (who && who.error === 'manual') {
-    setConn('warn', '自動認証できません（ユーザーIDを入力してください）');
+    setConn('warn', '自動認証失敗');
     showManualAuth('');
     return;
   }
   // 'login'（rkanri 未ログイン）: 認証画面のままログインボタンを表示（CSS）
-  setConn('warn', '未ログイン（「ログイン」から認証してください）');
+  setConn('warn', '認証待ち');
 }
 
 // ---- 中核: rkanri のページコンテキストで API を実行 -----------------------
@@ -665,11 +666,11 @@ async function callApi(endpoint, body, label, silent) {
 
   // ログイン切れ検出（HTML が返る / login へリダイレクト）→ 認証画面へ
   if (typeof result.data === 'string' && /<html|<!doctype|login/i.test(result.data)) {
-    setConn('warn', '未ログインの可能性');
+    setConn('warn', 'セッション切れ');
     setStatus('ログインが必要です');
     toast(
       IS_BROWSER
-        ? 'ログインが必要です。「ログイン」からログインしてください。'
+        ? 'ログインが必要です。「SSO認証」からログインしてください。'
         : 'ログインが必要です。認証画面でログインしてください。',
       'ng'
     );
@@ -2500,7 +2501,7 @@ async function reauth() {
     }
     loginTanto = null;
     showAuth();
-    setConn('warn', '未ログイン（「ログイン」から認証してください）');
+    setConn('warn', '認証待ち');
     return;
   }
   try {
