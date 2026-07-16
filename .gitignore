@@ -5,6 +5,9 @@ node_modules/
 dist/
 out/
 
+# 自動生成（ビルド時に scripts/gen-token.js が生成。平文トークンを含むため commit 禁止）
+src/update-token.js
+
 # logs
 *.log
 npm-debug.log*

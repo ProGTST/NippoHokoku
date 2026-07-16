@@ -17,6 +17,15 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 // electron-updater は require 時に app へ触れるため、遅延取得（getUpdater）で扱う。
 const electronUpdater = require('electron-updater');
+// 自動更新トークン（ビルド時に scripts/gen-token.js が src/update-token.js を生成）。
+// private リポジトリの Releases を GitHub API 経由で読むための読み取り専用トークン。
+// 開発起動やトークン未設定ビルドではファイルが無いため、安全に空文字へフォールバックする。
+let UPDATE_TOKEN = '';
+try {
+  UPDATE_TOKEN = require('./src/update-token').UPDATE_TOKEN || '';
+} catch {
+  // 未生成（dev 起動など）: トークン無しで続行（更新チェックは失敗するのみ）
+}
 
 const RK_PARTITION = 'persist:rkanri';
 const RK_ORIGIN = 'https://rkanri.genech.co.jp';
@@ -610,6 +619,8 @@ function getUpdater() {
   // ボタン押下で明示的にダウンロード＆インストールするため自動DLは無効化。
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  // private リポジトリの Releases にアクセスするため、読み取り専用トークンを認証ヘッダに付与。
+  if (UPDATE_TOKEN) autoUpdater.addAuthHeader(`token ${UPDATE_TOKEN}`);
   autoUpdater.on('update-available', (info) =>
     sendUpdateStatus({ state: 'available', version: info && info.version })
   );

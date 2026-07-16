@@ -8,9 +8,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "dist": "electron-builder --win nsis",
-    "dist:portable": "electron-builder --win portable",
-    "publish": "electron-builder --win nsis --publish always"
+    "gen-token": "node scripts/gen-token.js",
+    "dist": "npm run gen-token && electron-builder --win nsis",
+    "dist:portable": "npm run gen-token && electron-builder --win portable",
+    "publish": "npm run gen-token && electron-builder --win nsis --publish always"
   },
   "author": "",
   "license": "UNLICENSED",
@@ -51,7 +52,8 @@
     "publish": {
       "provider": "github",
       "owner": "ProGTST",
-      "repo": "NippoHokoku"
+      "repo": "NippoHokoku",
+      "private": true
     },
     "directories": {
       "output": "dist"
