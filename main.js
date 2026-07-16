@@ -30,6 +30,10 @@ try {
 const RK_PARTITION = 'persist:rkanri';
 const RK_ORIGIN = 'https://rkanri.genech.co.jp';
 
+// 自動更新の配信元（package.json の build.publish と一致させること）。
+const UPDATE_OWNER = 'ProGTST';
+const UPDATE_REPO = 'NippoHokoku';
+
 // ---- ブラウザ表示モード（トレイ常駐＋ローカル proxy。新仕様.md §11） --------
 const LOCAL_HOST = 'nippo.local';
 // ブラウザ表示用ポート。先頭から順に試し、確保できたものを使う。
@@ -619,8 +623,27 @@ function getUpdater() {
   // ボタン押下で明示的にダウンロード＆インストールするため自動DLは無効化。
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  // private リポジトリの Releases にアクセスするため、読み取り専用トークンを認証ヘッダに付与。
-  if (UPDATE_TOKEN) autoUpdater.addAuthHeader(`token ${UPDATE_TOKEN}`);
+  // private リポジトリの Releases を読むため、埋め込みトークンを feed 設定の token として渡す。
+  //
+  // これが肝心: electron-updater は「token が渡っているときだけ」PrivateGitHubProvider
+  // （api.github.com/repos/.../releases 経由）を選ぶ。token 無しだと public 用の
+  // GitHubProvider にフォールバックし releases.atom フィードを取りに行くが、private では
+  // これが 404 になり更新チェックが失敗する（本アプリで発生していた不具合）。
+  // クライアント端末には GH_TOKEN 環境変数が無いため、ここで token を明示する必要がある。
+  //
+  // 注: addAuthHeader は使わない。あれは全リクエストに Authorization を足すだけで
+  // プロバイダ選択を変えられず（＝atom フィードのまま）、さらにダウンロード時の
+  // GitHub→S3 リダイレクト先にまで GitHub トークンを送ってしまい失敗し得る。
+  // PrivateGitHubProvider は redirect を手動処理し、認証を正しく出し分ける。
+  if (UPDATE_TOKEN) {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: UPDATE_OWNER,
+      repo: UPDATE_REPO,
+      private: true,
+      token: UPDATE_TOKEN
+    });
+  }
   autoUpdater.on('update-available', (info) =>
     sendUpdateStatus({ state: 'available', version: info && info.version })
   );
