@@ -867,6 +867,24 @@ td.chk input {
 #registModal .modal-head {
   min-height: 44px;
 }
+/* ヘッダー右側の操作群（◀▶ 前後移動 + ✕ 閉じる）をまとめて右端へ寄せる。
+   wrapper 側に margin-left:auto を付け、中の各ボタンは基底の
+   .modal-head .ghost{margin-left:auto} を打ち消す。◀▶ を display:none で隠しても
+   wrapper が右寄せを保つため、✕ は常に右端に留まる（間隔は wrapper の gap で確保）。 */
+.modal-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.modal-head-actions .ghost {
+  margin-left: 0;
+}
+/* 前後移動ボタン：該当日報が無いときは非活性表示にする。 */
+.modal-head .nav-nippo:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 #registModal .modal-foot {
   min-height: 50px;
 }
