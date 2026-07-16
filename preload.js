@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('appInfo', {
   name: '日報入力',
-  version: '0.1.13',
+  version: '0.1.14',
   targetUrl: 'https://rkanri.genech.co.jp/kanri/nippo'
 });
 
