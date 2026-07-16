@@ -718,23 +718,54 @@ ipcMain.handle('clear-identity', () => {
 });
 
 // ---- 自動更新（GitHub Releases / electron-updater） -----------------------
+// GitHub は稀に一時的な 5xx（503 の "Unicorn" ページ等）やネットワークエラーを返す。
+// これらは端末やトークンの問題ではなくサーバー側の一過性障害なので、更新チェックは
+// 一時エラーに限り数回リトライしてから諦める（起動時の誤エラー表示を減らす狙い）。
+function isTransientUpdateError(e) {
+  const msg = String((e && (e.message || e.stack)) || e);
+  return (
+    /HttpError:\s*(408|425|429|5\d\d)/.test(msg) || // 一時的サーバーエラー / レート超過
+    /\b(408|425|429|500|502|503|504)\b/.test(msg) ||
+    /(ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ENETUNREACH|socket hang up|network\s*error)/i.test(
+      msg
+    )
+  );
+}
+
+const updateDelay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // 更新の有無を確認する。日報一覧の初期表示時に呼ばれ、結果で更新ボタンの表示を制御する。
 // 開発（未パッケージ）時は更新チェックできないため available:false を返す。
 ipcMain.handle('check-update', async () => {
   const current = app.getVersion();
   if (!app.isPackaged) return { available: false, current, dev: true };
-  try {
-    const r = await getUpdater().checkForUpdates();
-    const version = r && r.updateInfo && r.updateInfo.version;
-    // isUpdateAvailable（electron-updater v6）優先。無ければバージョン相違で判定。
-    const available =
-      r && typeof r.isUpdateAvailable === 'boolean'
-        ? r.isUpdateAvailable
-        : !!version && version !== current;
-    return { available, version, current };
-  } catch (e) {
-    return { available: false, current, error: String((e && e.message) || e) };
+  const maxAttempts = 3;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const r = await getUpdater().checkForUpdates();
+      const version = r && r.updateInfo && r.updateInfo.version;
+      // isUpdateAvailable（electron-updater v6）優先。無ければバージョン相違で判定。
+      const available =
+        r && typeof r.isUpdateAvailable === 'boolean'
+          ? r.isUpdateAvailable
+          : !!version && version !== current;
+      return { available, version, current };
+    } catch (e) {
+      lastErr = e;
+      // 一時エラーのときだけ待って再試行（1.5s, 3s）。恒久的なエラーは即座に諦める。
+      if (attempt < maxAttempts && isTransientUpdateError(e)) {
+        await updateDelay(1500 * attempt);
+        continue;
+      }
+      break;
+    }
   }
+  return {
+    available: false,
+    current,
+    error: String((lastErr && lastErr.message) || lastErr)
+  };
 });
 
 // 更新ボタン押下 → 最新版をダウンロード（完了は update-downloaded イベントで通知）。

@@ -2332,8 +2332,16 @@ function wireUpdateStatus() {
       toast('ダウンロード完了。再起動して更新します。', 'ok');
       window.appApi.quitAndInstall();
     } else if (s.state === 'error') {
-      toast('更新エラー: ' + (s.message || ''), 'ng');
-      resetUpdateBtn();
+      // 起動時の自動チェック失敗（GitHub の一時的な 5xx 等）はユーザーへ出さない。
+      // electron-updater は checkForUpdates 失敗でも error イベントを発火するため、
+      // ここで抑止しないと GitHub 障害のたびに巨大な赤エラーが表示されてしまう。
+      // ユーザーが「⬆ 更新」を押してダウンロード進行中(updateBusy)のときだけ通知する。
+      if (updateBusy) {
+        const msg = String(s.message || '');
+        // GitHub の HTML エラーページ等で極端に長いことがあるため丸める。
+        toast('更新エラー: ' + (msg.length > 200 ? msg.slice(0, 200) + '…' : msg), 'ng');
+        resetUpdateBtn();
+      }
     }
   });
 }
