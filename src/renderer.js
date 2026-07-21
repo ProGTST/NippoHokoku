@@ -2420,6 +2420,10 @@ function wire() {
   $('btnClearFilter').addEventListener('click', () => clearFieldFilters());
   $('btnUpdate').addEventListener('click', () => doUpdate());
   $('btnUpdateLogin').addEventListener('click', () => doUpdate());
+  // 案件コード設定基準（インフォメーション。ログイン画面・日報一覧の両フッターから開ける）
+  $('btnInfo').addEventListener('click', () => openModal('infoModal'));
+  $('btnInfoLogin').addEventListener('click', () => openModal('infoModal'));
+  $('btnCloseInfo').addEventListener('click', () => closeModal('infoModal'));
   $('btnNew').addEventListener('click', () => openNewModal());
   $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
   $('btnBulkDelete').addEventListener('click', () => doBulkDelete());

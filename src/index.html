@@ -85,6 +85,7 @@
             ⬆ 更新
           </button>
           <span id="verLabelLogin" class="ver-label" title="現在のバージョン"></span>
+          <button id="btnInfoLogin" class="info-btn" title="案件コード設定基準" aria-label="案件コード設定基準">i</button>
         </span>
       </div>
     </section>
@@ -149,6 +150,7 @@
           ⬆ 更新
         </button>
         <span id="verLabel" class="ver-label" title="現在のバージョン"></span>
+        <button id="btnInfo" class="info-btn" title="案件コード設定基準" aria-label="案件コード設定基準">i</button>
       </div>
     </main>
 
@@ -411,6 +413,169 @@
         </div>
         <div class="modal-body">
           <div id="bulkMultiTable" class="table-wrap modal-table"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 案件コード設定基準（インフォメーション） -->
+    <div id="infoModal" class="modal-overlay hidden" data-close="infoModal">
+      <div class="modal modal-wide">
+        <div class="modal-head">
+          <span class="modal-title">日報登録 案件コード設定基準</span>
+          <button id="btnCloseInfo" class="ghost" title="閉じる">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="info-doc">
+            <h4>はじめに</h4>
+            <p>
+              以下の基準にて日々の日報登録をお願いします。<br />
+              登録時に設定する案件コードを以下のルールで規定しますので、必ず守るようにお願いします。<br />
+              登録されたデータは毎月各案件コード毎に工数として集計し、確認を実施していきます。
+            </p>
+            <p>
+              単なる作業報告ではありません。標準で1日8時間の作業内容を正確な案件コード・作業時間で登録をお願いします。<br />
+              不明点や案件コードがわからなくなった時は正岡さん・中谷までご連絡ください。
+            </p>
+
+            <div class="info-note">
+              <h4>◆特記事項</h4>
+              <p>
+                日報登録画面の「その他報告事項」欄には対応した作業内容がわかるコメントを記載してください。<br />
+                後ほど作業状況を確認する時に内容を把握する為に使用します。<br />
+                「作業内容」を選択時に該当する選択項目が無い場合は「※その他」を選び、「その他報告事項」対応内容を明確に記載してください。
+              </p>
+            </div>
+
+            <hr class="info-divider" />
+
+            <div class="info-item info-item-blue">
+              <div class="info-item-title">■新規案件獲得（プレ）</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-001501</dd>
+                <dt>対象作業</dt>
+                <dd>
+                  新規・既存顧客に関わらず、案件相談による問合せ・打合せ・作業・見積作成・見積レビューなど新規案件獲得に関わる作業全般
+                </dd>
+              </dl>
+            </div>
+
+            <div class="info-item info-item-blue">
+              <div class="info-item-title">■各種案件</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>同じマイルストーンで設定されている「★」が付いているBacklogチケット内に記載している案件コード</dd>
+                <dt>対象作業</dt>
+                <dd>
+                  案件に関わる作業全般、見積もりを除く各レビュー（設計・ソースコード・テスト・出荷）<br />
+                  発生元となった案件が明確である不具合に対する作業全般（調整・改修・レビュー等）
+                </dd>
+              </dl>
+            </div>
+
+            <div class="info-item info-item-blue">
+              <div class="info-item-title">■保守(準委任契約分等)</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>同じマイルストーンで設定されている「★」が付いているBacklogチケット内に記載している案件コード</dd>
+                <dt>対象作業</dt>
+                <dd>保守に関わる作業全般</dd>
+              </dl>
+            </div>
+
+            <div class="info-item info-item-blue">
+              <div class="info-item-title">■プロダクト開発</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-001936</dd>
+                <dt>対象作業</dt>
+                <dd>プロダクト開発に関わる作業全般</dd>
+              </dl>
+            </div>
+
+            <div class="info-item info-item-blue">
+              <div class="info-item-title">■問合せ対応</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-001392</dd>
+                <dt>対象作業</dt>
+                <dd>
+                  各案件の契約終了後に発生した問合せ作業全般<br />
+                  問合せの調査中に不具合であることが発覚した場合、発覚以降の作業は「不具合」で登録
+                </dd>
+                <dt>その他報告事項</dt>
+                <dd>顧客名・案件名（わかれば）も記載</dd>
+              </dl>
+            </div>
+
+            <div class="info-item info-item-blue">
+              <div class="info-item-title">■不具合</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-001466</dd>
+                <dt>対象作業</dt>
+                <dd>
+                  発生元となった案件が不明な不具合や、分類ができない不具合対応に対する作業全般（調整・改修・レビュー等）
+                </dd>
+                <dt>その他報告事項</dt>
+                <dd>顧客名・案件名（わかれば）も記載</dd>
+              </dl>
+            </div>
+
+            <div class="info-item">
+              <div class="info-item-title">■その他(社内業務-部内)</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-000267</dd>
+                <dt>対象作業</dt>
+                <dd>
+                  案件と直接紐付かない部内の社内作業<br />
+                  部内の業務に関わる打合せ・作業・教育・研修など
+                </dd>
+                <dt>その他報告事項</dt>
+                <dd>作業内容を明確に記載</dd>
+              </dl>
+            </div>
+
+            <div class="info-item">
+              <div class="info-item-title">■その他(社内業務-部外)</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-001502</dd>
+                <dt>対象作業</dt>
+                <dd>
+                  部外から依頼があった社内作業や打合せなど全般<br />
+                  （例えば人事からの採用関連、やまゆり対応など）
+                </dd>
+                <dt>その他報告事項</dt>
+                <dd>作業依頼部署、作業内容を明確に記載</dd>
+              </dl>
+            </div>
+
+            <div class="info-item info-item-green">
+              <div class="info-item-title">■GAWS・Lab Meeting・APN関連作業</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-001928</dd>
+                <dt>対象作業</dt>
+                <dd>GAWSやLab Meeting・APNに関わる活動（打合せ・資料作成・移動など）全般</dd>
+                <dt>その他報告事項</dt>
+                <dd>作業内容を記載</dd>
+              </dl>
+            </div>
+
+            <div class="info-item">
+              <div class="info-item-title">■非稼働</div>
+              <dl>
+                <dt>案件コード</dt>
+                <dd>A-000867</dd>
+                <dt>対象作業</dt>
+                <dd>休みを取得時</dd>
+                <dt>その他報告事項</dt>
+                <dd>有休申請の種類（全休・半休・時間休など）を記載</dd>
+              </dl>
+            </div>
+          </div>
         </div>
       </div>
     </div>

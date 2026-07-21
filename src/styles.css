@@ -432,6 +432,31 @@ body.app .main-view {
   font-size: 12px;
   white-space: nowrap;
 }
+/* 案件コード設定基準を開く「i」アイコンボタン（バージョンラベルの右） */
+.info-btn {
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.info-btn:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
 
 /* ---- 汎用フォーム部品 ---- */
 input,
@@ -788,6 +813,9 @@ td.chk input {
 .modal-narrow {
   width: 560px;
 }
+.modal-wide {
+  width: 1200px;
+}
 /* 修正モード→コピーモード切替時、モーダルを少し浮き上げて元の位置に戻して見せる */
 .modal.copy-hop {
   animation: copy-hop 0.45s ease-in-out;
@@ -828,6 +856,82 @@ td.chk input {
 .modal-body {
   padding: 12px 14px;
   overflow: auto;
+}
+/* 案件コード設定基準ドキュメント（infoModal） */
+.info-doc {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.info-doc h4 {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.info-doc h4:first-child {
+  margin-top: 0;
+}
+.info-doc p {
+  margin: 0 0 10px;
+}
+/* 特記事項（黄色パネルで強調） */
+.info-doc .info-note {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #f0d264;
+  border-radius: 6px;
+  background: #fdf6d8;
+  color: #5c4a08;
+}
+.info-doc .info-note h4 {
+  margin-top: 0;
+  color: #5c4a08;
+}
+.info-doc .info-note p:last-child {
+  margin-bottom: 0;
+}
+/* 特記事項パネルと案件パネル群の区切り線 */
+.info-doc .info-divider {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.info-doc .info-item {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+/* 案件に紐づく区分（新規案件獲得〜不具合）は青パネルで表示 */
+.info-doc .info-item-blue {
+  border-color: #a9c7f0;
+  background: #eaf2fd;
+}
+/* GAWS・Lab Meeting・APN関連作業は緑パネルで表示 */
+.info-doc .info-item-green {
+  border-color: #a6d8b0;
+  background: #e7f6ec;
+}
+.info-doc .info-item-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.info-doc dl {
+  margin: 0;
+  display: grid;
+  /* 全パネルでラベル列幅を統一（最長「その他報告事項」に合わせた固定幅） */
+  grid-template-columns: 7.5em 1fr;
+  column-gap: 10px;
+  row-gap: 2px;
+}
+.info-doc dt {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.info-doc dd {
+  margin: 0;
 }
 .modal-foot {
   display: flex;
