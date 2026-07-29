@@ -176,6 +176,131 @@ async function proxyGetTantoListArray() {
   return Array.isArray(data) ? data : null;
 }
 
+// ---- サイレント SSO: 非表示ウィンドウでセッションを再確立する ---------------
+// rkanri のセッション Cookie は expires を持たない session cookie のため、アプリ終了
+// （＝PC 再起動）で失われる。一方 IdP（desknet's NEO ポータル / Microsoft）の永続 Cookie は
+// persist:rkanri にディスク保存されて生き残る。
+// デスクトップ版が「自動認証」されて見えるのは、webview が rkanri を読み込む際に
+// この残った IdP Cookie でリダイレクト連鎖（JS・自動 POST を含む）を完走し、無操作のまま
+// rkanri セッションを取り直しているため。
+// 一方 proxyToRkanri の net.request は素の HTTP クライアントで連鎖を完走できず、ログイン
+// HTML が返るだけなので、ブラウザ表示モードでは毎回の対話ログインが必要になっていた。
+// そこで同じことを非表示の BrowserWindow（同一パーティション）で行う。成功すれば以降の
+// proxy 呼び出しはそのまま通る。ユーザー操作が必要な状態（IdP 上に留まる）なら諦め、
+// 従来どおり /api/login の対話ログインへ委ねる。
+// 返り値: 成功＝担当者マスタ全件（成立確認で取得済みのものをそのまま返す）／失敗＝null。
+const SSO_WARMUP_TIMEOUT_MS = 20000; // 全体の安全弁
+const SSO_WARMUP_SETTLE_MS = 3000; // 遷移が止まり「これ以上進まない」と判断するまでの猶予
+let ssoWarmupInFlight = null; // 同時実行防止（起動時ウォームアップと whoami の競合を避ける）
+
+function silentSsoWarmup() {
+  if (ssoWarmupInFlight) return ssoWarmupInFlight;
+  // 対話ログイン中は同一パーティションを触らない（フローの衝突を避ける）。
+  if (loginWin && !loginWin.isDestroyed()) return Promise.resolve(null);
+  const p = new Promise((resolve) => {
+    let win = null;
+    let done = false;
+    let settle = null;
+    let hardStop = null;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(settle);
+      clearTimeout(hardStop);
+      try {
+        if (win && !win.isDestroyed()) win.destroy(); // 見えない窓を残さない
+      } catch (e) {
+        /* noop */
+      }
+      win = null;
+      // 現地での切り分け用（対話ログインが必要なのか、サイレントで復帰できたのか）。
+      console.log('[nippo] silent SSO warmup: ' + (val ? 'ok' : 'give up'));
+      resolve(val);
+    };
+    try {
+      win = new BrowserWindow({
+        show: false, // 決して表示しない
+        webPreferences: {
+          partition: RK_PARTITION,
+          // 非表示ウィンドウは既定でタイマーが間引かれる。SSO の中継ページが
+          // setTimeout で自動 POST する実装だと連鎖が止まり得るため無効化する。
+          backgroundThrottling: false
+        }
+      });
+    } catch (e) {
+      resolve(null);
+      return;
+    }
+    const wc = win.webContents;
+    // SSO は複数回リダイレクトするため、遷移が再開したら「諦めタイマー」を取り消す。
+    const giveUpSoon = () => {
+      clearTimeout(settle);
+      settle = setTimeout(() => finish(null), SSO_WARMUP_SETTLE_MS);
+    };
+    wc.on('did-start-loading', () => clearTimeout(settle));
+    wc.on('did-stop-loading', async () => {
+      if (done) return;
+      // rkanri に戻ってきていればセッション成立を確認する（取得できた一覧をそのまま返す）。
+      if (wc.getURL().startsWith(RK_ORIGIN)) {
+        const list = await proxyGetTantoListArray();
+        if (list) {
+          finish(list);
+          return;
+        }
+      }
+      // 判定中に次の遷移が始まっていたらタイマーを張らない（連鎖の途中なので待つ）。
+      if (done || wc.isDestroyed() || wc.isLoading()) return;
+      giveUpSoon(); // まだ IdP 上／ログイン画面 → 次の遷移が来なければ打ち切る
+    });
+    wc.on('did-fail-load', () => {
+      if (!done) giveUpSoon(); // リダイレクト中の ERR_ABORTED は did-start-loading で取り消される
+    });
+    hardStop = setTimeout(() => finish(null), SSO_WARMUP_TIMEOUT_MS);
+    win.loadURL(RK_ORIGIN + '/kanri/nippo').catch(() => finish(null));
+  });
+  ssoWarmupInFlight = p;
+  p.then(() => {
+    if (ssoWarmupInFlight === p) ssoWarmupInFlight = null;
+  });
+  return p;
+}
+
+// persist:rkanri を消去する（再認証・ログアウト共通）。進行中のサイレント SSO を待ってから
+// 消すことで、非表示ウィンドウが消去直後に古いセッションを書き戻すのを防ぐ。
+async function clearRkanriSession() {
+  if (ssoWarmupInFlight) await ssoWarmupInFlight;
+  await session.fromPartition(RK_PARTITION).clearStorageData();
+}
+
+// rkanri セッションを確実にした上で担当者マスタ全件を返す（駄目なら null＝未ログイン）。
+// 素の proxy で取れなければサイレント SSO を挟む（成功時はその中で取得した一覧を返す）。
+async function ensureRkanriSession() {
+  const list = await proxyGetTantoListArray();
+  return list || (await silentSsoWarmup());
+}
+
+function tryParseJson(text) {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (e) {
+    return { ok: false, value: text }; // HTML/login 応答
+  }
+}
+
+// ブラウザ表示モードの API 中継。JSON でない応答（＝ログイン画面へ弾かれた）ときだけ
+// サイレント SSO を挟んで一度だけ再実行する。ログインへリダイレクトされた要求はサーバー側で
+// 未処理なので、registData / deleteData のような非冪等 API でも二重実行にはならない。
+async function proxyWithWarmup(endpoint, bodyStr) {
+  let pr = await proxyToRkanri(endpoint, bodyStr);
+  let parsed = tryParseJson(pr.body);
+  if (!parsed.ok && (await silentSsoWarmup())) {
+    pr = await proxyToRkanri(endpoint, bodyStr);
+    parsed = tryParseJson(pr.body);
+  }
+  // 復帰できなければ HTML のまま返す（renderer 側でセッション切れとして認証画面に戻る）。
+  return { pr, data: parsed.value };
+}
+
 // getTantoList 全件から、指定ローカル値（メールの @ より前 or 手動ユーザーID）＝名称4 の行を探す。
 function matchTantoByLocal(list, local) {
   local = String(local || '')
@@ -196,8 +321,9 @@ function matchTantoByLocal(list, local) {
 // ①メール→名称4 照合 → ②永続化 userId で名称4 再照合 → ③手動入力へ誘導。
 // 返り値: 成功 { code, name }／未ログイン { error: 'login' }／照合不可 { error: 'manual' }。
 async function resolveWhoami() {
-  const list = await proxyGetTantoListArray();
-  if (!list) return { error: 'login' }; // rkanri 未ログイン
+  // セッション切れならサイレント SSO で復帰を試みる（デスクトップ版の自動認証と同等）。
+  const list = await ensureRkanriSession();
+  if (!list) return { error: 'login' }; // rkanri 未ログイン（要 対話ログイン）
   // ① SSO自動照合: 今回ログインのメール（@ より前）＝名称4
   if (capturedEmail) {
     const local = capturedEmail.split('@')[0];
@@ -234,7 +360,7 @@ async function resolveWhoami() {
 // 成功時は手動ユーザーIDを含めて永続化し（次回以降の自動認証）、{ code, name } を返す。
 // 該当なしは { error: 'notfound' }、rkanri 未ログインは { error: 'login' }。
 async function handleManualLogin(userId) {
-  const list = await proxyGetTantoListArray();
+  const list = await ensureRkanriSession();
   if (!list) return { error: 'login' };
   const hit = matchTantoByLocal(list, userId);
   if (!hit) return { error: 'notfound' };
@@ -289,7 +415,7 @@ function openLoginWindow() {
 
 // POST /api/login: 対話ログインでメールを確実に捕捉するため一旦セッションを消してから開く。
 async function handleBrowserLogin() {
-  await session.fromPartition(RK_PARTITION).clearStorageData();
+  await clearRkanriSession();
   capturedEmail = null;
   clearIdentity();
   const ok = await openLoginWindow();
@@ -299,7 +425,7 @@ async function handleBrowserLogin() {
 
 // POST /api/logout: セッションと本人情報を破棄。
 async function handleBrowserLogout() {
-  await session.fromPartition(RK_PARTITION).clearStorageData();
+  await clearRkanriSession();
   capturedEmail = null;
   clearIdentity();
 }
@@ -412,13 +538,7 @@ function startLocalServer() {
         }
         if (req.method === 'POST' && API_WHITELIST.has(action)) {
           const body = await readLocalBody(req);
-          const pr = await proxyToRkanri(action, body || '{}');
-          let data;
-          try {
-            data = JSON.parse(pr.body);
-          } catch (e) {
-            data = pr.body; // HTML/login はそのまま渡し、renderer 側で未ログイン検出
-          }
+          const { pr, data } = await proxyWithWarmup(action, body || '{}');
           return sendLocalJson(res, { ok: pr.ok, status: pr.status, data });
         }
         res.writeHead(404);
@@ -698,7 +818,7 @@ function createWindow() {
 // 再読込で Microsoft SSO のログイン画面から入り直せるようにする。
 // あわせて本人特定の捕捉メールと永続化 identity を破棄し、別アカウントへの切替に対応する。
 ipcMain.handle('clear-session', async () => {
-  await session.fromPartition(RK_PARTITION).clearStorageData();
+  await clearRkanriSession();
   capturedEmail = null;
   clearIdentity();
   return true;
@@ -796,7 +916,15 @@ if (!gotSingleInstanceLock) {
 
     // --tray（自動起動）ではウィンドウを出さずバックグラウンド常駐。
     // exe を直接起動した場合は従来どおりデスクトップ画面を表示。
-    if (!process.argv.includes('--tray')) createWindow();
+    if (process.argv.includes('--tray')) {
+      // バックグラウンド常駐では webview がロードされず rkanri セッションが未確立のため、
+      // ここでサイレント SSO を済ませておく（ブラウザ表示を開いた瞬間に使えるようにする）。
+      // デスクトップ画面を出す場合は webview が同じことをするので、二重に走らせない。
+      // 失敗しても実害は無い（ブラウザ表示時に再試行され、駄目ならログインボタンが出る）。
+      silentSsoWarmup();
+    } else {
+      createWindow();
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) showDesktop();
