@@ -93,9 +93,23 @@ const rk = $('rk'); // <webview>
 // 実行環境: preload が注入する window.appApi の有無でデスクトップ版/ブラウザ表示版を判定する。
 const IS_BROWSER = !window.appApi;
 // ブラウザ表示版の同一オリジン API ヘルパー（ローカルサーバーの /api を叩く）。
+// ローカルサーバーは起動ごとにトークン（httpOnly Cookie）を作り直すため、アプリの再起動
+// （自動更新・PC 再起動後の自動起動）より前から開いていたタブは /api が 403 になる。
+// その場合は再読み込み（index.html の再取得でトークンを受け取り直す）を促す例外にする。
+const STALE_TAB_MSG =
+  'アプリが再起動されたため接続が切れました。ページを再読み込み（F5）してください。';
+/** @param {Response} r */
+async function readLocalJson(r) {
+  if (r.status === 403) throw new Error(STALE_TAB_MSG);
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`ローカルサーバーの応答が不正です（HTTP ${r.status}）`);
+  }
+}
 async function apiGet(p) {
-  const r = await fetch(p, { headers: { accept: 'application/json' } });
-  return r.json();
+  return readLocalJson(await fetch(p, { headers: { accept: 'application/json' } }));
 }
 async function apiPost(p, body) {
   const r = await fetch(p, {
@@ -103,7 +117,16 @@ async function apiPost(p, body) {
     headers: { 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : '{}'
   });
-  return r.json();
+  return readLocalJson(r);
+}
+// ブラウザ表示版のローカルサーバー通信失敗を利用者とログに示す（認証画面ではエラー欄にも残す）。
+function reportBrowserApiError(e) {
+  const msg = String((e && e.message) || e);
+  console.error('[nippo] ローカルサーバー通信失敗:', msg);
+  setConn('ng', '通信エラー');
+  setStatus(msg);
+  toast(msg, 'ng');
+  if (document.body.classList.contains('auth')) showLoginErrorText(msg);
 }
 let webReady = false;
 let formSnapshot = null; // 登録モーダルを開いた時点の値（リセット用）
@@ -437,7 +460,9 @@ async function enterWithTanto(code, name) {
   setVal('tantoName', name);
   loginTanto = { code, name };
   syncRegTanto();
+  const seq = ++listSeq; // 取得中の loadList の応答を無効にする（loadList と同じ連番）
   const r = await callApi('getNippoList', { tanto: code }, '日報一覧取得', true);
+  if (seq !== listSeq || getVal('tanto') !== code) return false; // 後から別の取得・担当変更があった
   if (r && Array.isArray(r.data)) {
     clearLoginError();
     hideManualAuth();
@@ -549,6 +574,13 @@ function showLoginError(html) {
   el.innerHTML = html;
   el.classList.remove('hidden');
 }
+// 認証画面のエラー表示（例外メッセージ等の可変文字列用。textContent で描画）。
+function showLoginErrorText(text) {
+  const el = $('authError');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('hidden');
+}
 function clearLoginError() {
   const el = $('authError');
   if (!el) return;
@@ -627,7 +659,8 @@ async function submitManualId() {
     try {
       who = await apiPost('/api/manual-login', { userId: uid });
     } catch (e) {
-      who = { error: 'login' };
+      reportBrowserApiError(e);
+      return;
     }
     if (who && who.code) {
       await enterWithTanto(who.code, who.name || '');
@@ -674,7 +707,8 @@ async function browserBoot() {
   try {
     who = await apiGet('/api/whoami');
   } catch (e) {
-    who = { error: 'login' };
+    reportBrowserApiError(e); // 未ログイン扱いにせず、原因（再読み込みが必要等）を示す
+    return;
   }
   await browserHandleWhoami(who);
 }
@@ -682,11 +716,13 @@ async function browserBoot() {
 // 「ログイン」押下: main が SSO ウィンドウを開き、完了後に本人を返す。
 async function browserLogin() {
   setConn('warn', 'ログイン処理中…');
+  clearLoginError();
   let who;
   try {
     who = await apiPost('/api/login');
   } catch (e) {
-    who = { error: 'login' };
+    reportBrowserApiError(e); // 押しても何も起きない状態にしない
+    return;
   }
   await browserHandleWhoami(who);
 }
@@ -758,12 +794,8 @@ function rawText(result) {
 // いずれも { ok, status, data } 形の結果を返す。
 async function execApi(endpoint, body) {
   if (IS_BROWSER) {
-    const res = await fetch('/api/' + endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    return await res.json(); // ローカルサーバーが { ok, status, data } を返す
+    // ローカルサーバーが { ok, status, data } を返す（403＝古いタブ等は例外 → callApi が表示）
+    return await apiPost('/api/' + endpoint, body);
   }
   return await rk.executeJavaScript(buildInjection(endpoint, body));
 }
@@ -1243,8 +1275,15 @@ function initListFilter() {
   fillFilterSelect('fNaiyo', SAGYO_NAIYO);
   fillFilterSelect('fShinchoku', SAGYO_SHINCHOKU);
 }
+// 日報一覧の取得要求の連番。担当変更・再取得を続けて行った時に、古い要求の応答
+// （前の担当者の一覧）が後から届いて今の担当者・権限で表示されるのを防ぐため、
+// 最新の要求の応答だけを反映する（参照のみで見た他人の日報を全権で操作できてしまうのを防ぐ）。
+let listSeq = 0;
 async function loadList() {
-  const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得');
+  const seq = ++listSeq;
+  const tanto = getVal('tanto');
+  const r = await callApi('getNippoList', { tanto }, '日報一覧取得');
+  if (seq !== listSeq || getVal('tanto') !== tanto) return; // 古い応答は捨てる
   if (r && Array.isArray(r.data)) showNippoList(r.data);
 }
 // ---- 入力チェック ---------------------------------------------------------
@@ -1797,6 +1836,10 @@ function doBulkCopy() {
   return runExclusive(doBulkCopyInner);
 }
 async function doBulkCopyInner() {
+  if (viewOnly) {
+    toast('参照のみモードでは一括コピーできません', 'ng');
+    return;
+  }
   const rows = selectedRows();
   if (!rows.length) {
     toast('対象の日報を選択してください', 'ng');
@@ -2630,11 +2673,17 @@ function openAnkenModal(target, entry) {
   $('svalue').focus();
   searchAnken(false); // 初期表示は履歴を実行して表示（検索ボタンは再検索用）
 }
+// 案件・担当者検索の要求連番。開いた直後の初期表示（履歴／全件）の応答が、続けて押した
+// 検索の結果を後から上書きしないよう、最新の要求の応答だけを描画する。
+let ankenSeq = 0;
+let tantoSeq = 0;
 async function searchAnken(withSvalue) {
+  const seq = ++ankenSeq;
   // 案件は登録対象の担当者の履歴／検索を出す（一括変更・個別変更は日報一覧の担当者）
   const t = ankenTarget === 'regist' ? getVal('regTanto') || getVal('tanto') : getVal('tanto');
   const body = withSvalue ? { tanto: t, svalue: getVal('svalue') } : { tanto: t };
   const r = await callApi('gethistory', body, withSvalue ? '案件検索' : '案件履歴');
+  if (seq !== ankenSeq) return; // 後から出した要求がある（古い応答は捨てる）
   if (r && Array.isArray(r.data)) renderTableInto($('ankenTable'), 'gethistory', r.data, pickAnken);
 }
 function pickAnken(row) {
@@ -2680,7 +2729,9 @@ function openTantoModal() {
   searchTantoList(); // 初期表示は全件（svalue 空）を実行して表示（検索ボタンは再検索用）
 }
 async function searchTantoList() {
+  const seq = ++tantoSeq;
   const r = await callApi('getTantoList', { svalue: getVal('svalue2') }, '担当者検索');
+  if (seq !== tantoSeq) return; // 後から出した要求がある（古い応答は捨てる）
   if (r && Array.isArray(r.data))
     renderTableInto($('tantoTable'), 'getTantoList', r.data, pickTanto);
 }
@@ -3053,7 +3104,9 @@ async function reauth() {
     try {
       await apiPost('/api/logout');
     } catch (e) {
-      /* noop */
+      // ログアウトできていない（サーバー側のセッション・本人情報が残る）ため画面は切り替えない
+      reportBrowserApiError(e);
+      return;
     }
     loginTanto = null;
     showAuth();
@@ -3090,8 +3143,12 @@ if (IS_BROWSER) {
 } else {
   // デスクトップ版: 従来どおり webview で認証し、更新チェックも行う。
   showAuth();
-  // フッターの現在バージョン初期表示（確定値は checkForUpdate の r.current で上書き）
-  if (window.appInfo) setVersionLabel(window.appInfo.version);
+  // フッターの現在バージョン初期表示（main の app.getVersion()＝package.json の version）。
+  // 版数を preload 等に二重に持たない（更新漏れで古い版数が出るのを防ぐ）。
+  window.appApi
+    .getVersion()
+    .then(setVersionLabel)
+    .catch((e) => console.error('[nippo] バージョン取得失敗:', (e && e.message) || e));
   // ログイン画面でも更新有無をチェックし、更新があればフッター右端に更新ボタンを表示する。
   checkForUpdate();
 }

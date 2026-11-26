@@ -1,13 +1,15 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// 版数は package.json の version を正とし、ここには持たない（appApi.getVersion で main から取得）。
 contextBridge.exposeInMainWorld('appInfo', {
   name: '日報入力',
-  version: '0.1.18',
   targetUrl: 'https://rkanri.genech.co.jp/kanri/nippo'
 });
 
 // 再認証・自動更新用の IPC（メインプロセスで実行）
 contextBridge.exposeInMainWorld('appApi', {
+  // 現在のバージョン（app.getVersion()＝package.json の version）
+  getVersion: () => ipcRenderer.invoke('get-version'),
   clearSession: () => ipcRenderer.invoke('clear-session'),
   // 本人特定（Microsoft ログインメール捕捉 → 名称4 照合）
   getCapturedEmail: () => ipcRenderer.invoke('get-captured-email'),

@@ -627,11 +627,18 @@ function startLocalServer() {
       res.writeHead(404);
       res.end('not found');
     } catch (e) {
+      // 原因を追えるよう必ずログに残す（ブラウザ側には 500 として返り、エラー表示される）
+      console.error(
+        '[nippo] local server request failed:',
+        req.method,
+        req.url,
+        (e && e.stack) || e
+      );
       try {
         res.writeHead(500);
         res.end('error');
       } catch (e2) {
-        /* noop */
+        console.error('[nippo] local server error response failed:', (e2 && e2.message) || e2);
       }
     }
   });
@@ -661,18 +668,21 @@ function startLocalServer() {
   });
   httpServer.listen(LOCAL_PORTS[0], '127.0.0.1');
 }
-// ①: ブラウザ表示が使えないことをユーザーへ通知する（無言失敗を避ける）。
-function notifyBrowserUnavailable() {
+// OS 通知を出す（トレイ常駐中は画面が無いため、結果・失敗は通知で知らせる）。
+function notify(title, body) {
   try {
-    new Notification({
-      title: '日報入力：ブラウザ表示は利用できません',
-      body:
-        `ポート ${LOCAL_PORTS.join(' / ')} が他アプリ（Docker/WSL 等）に使用されているため、` +
-        'ブラウザ表示を無効化しました。デスクトップ画面はそのままご利用いただけます。'
-    }).show();
+    new Notification({ title, body }).show();
   } catch (e) {
     console.error('[nippo] notify failed:', (e && e.message) || e);
   }
+}
+// ①: ブラウザ表示が使えないことをユーザーへ通知する（無言失敗を避ける）。
+function notifyBrowserUnavailable() {
+  notify(
+    '日報入力：ブラウザ表示は利用できません',
+    `ポート ${LOCAL_PORTS.join(' / ')} が他アプリ（Docker/WSL 等）に使用されているため、` +
+      'ブラウザ表示を無効化しました。デスクトップ画面はそのままご利用いただけます。'
+  );
 }
 
 // ---- トレイ常駐 / 自動起動 / hosts 追記 -----------------------------------
@@ -714,7 +724,7 @@ function setupTray() {
         { label: 'デスクトップ画面を開く', click: () => showDesktop() },
         {
           label: 'ブラウザ表示を有効化（hosts に nippo.local を追記）',
-          click: () => ensureHostsEntry()
+          click: () => ensureHostsEntry(true)
         },
         { type: 'separator' },
         {
@@ -733,7 +743,7 @@ function setupAutostart() {
     // 開発時は自動起動を登録しない
     if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: true, args: ['--tray'] });
   } catch (e) {
-    /* noop */
+    console.error('[nippo] autostart setup failed:', (e && e.message) || e);
   }
 }
 // hosts に「127.0.0.1 nippo.local」の“有効な”行があるかを厳密判定する。
@@ -755,9 +765,22 @@ function hostsHasEntry() {
     return false;
   }
 }
+// hosts 追記に失敗した（UAC 拒否・書き込み失敗等）ことを通知する。
+function notifyHostsFailed() {
+  notify(
+    '日報入力：ブラウザ表示（nippo.local）を有効化できませんでした',
+    '管理者権限の確認（UAC）が拒否されたか、hosts の書き込みに失敗しました。' +
+      'トレイメニューの「ブラウザ表示を有効化」から再実行できます（http://127.0.0.1 では表示できます）。'
+  );
+}
 // hosts に「127.0.0.1 nippo.local」を追記（管理者権限で昇格）。拒否時はブラウザ表示が無効になるだけ。
-function ensureHostsEntry() {
-  if (hostsHasEntry()) return true;
+// 昇格したスクリプトの終了を待って（Start-Process -Wait）hosts を再判定し、失敗は必ず通知・ログする。
+// manual=true（トレイメニューから実行）のときは「既に有効」「有効化した」も通知する。
+function ensureHostsEntry(manual) {
+  if (hostsHasEntry()) {
+    if (manual) notify('日報入力：ブラウザ表示は有効です', `${browserUrl()} で開けます。`);
+    return true;
+  }
   try {
     const ps1 = path.join(app.getPath('userData'), 'add-nippo-hosts.ps1');
     // 昇格側でも厳密判定（非コメントの 127.0.0.1 nippo.local 行のみ存在とみなす）。
@@ -768,7 +791,8 @@ function ensureHostsEntry() {
     // 日本語を混ぜると PowerShell 5.1 が ANSI と誤解して文字化けする。
     // 由来が分かるよう nippo-desktop を明記し、不要時に削除してよい旨を添える。
     fs.writeFileSync(ps1, script, 'utf8');
-    spawn(
+    let settled = false; // 'error' と 'exit' の両方が来ても結果は一度だけ扱う
+    const child = spawn(
       'powershell.exe',
       [
         '-NoProfile',
@@ -777,14 +801,34 @@ function ensureHostsEntry() {
         '-Command',
         // PowerShell のシングルクォート文字列に埋め込むため ' を '' でエスケープする。
         // userData パス（＝Windows ユーザー名）に ' が含まれても壊れず、注入もされない。
-        `Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1.replace(/'/g, "''")}'`
+        // -Wait で昇格側の終了を待ち、終了後に hosts を再判定して結果を通知する。
+        `Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1.replace(/'/g, "''")}'`
       ],
       { windowsHide: true, detached: true }
-    ).on('error', () => {
-      /* 昇格拒否/失敗はブラウザ表示無効で許容 */
+    );
+    child.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      console.error('[nippo] hosts elevation spawn failed:', (e && e.message) || e);
+      notifyHostsFailed();
+    });
+    child.on('exit', (code) => {
+      if (settled) return;
+      settled = true;
+      if (hostsHasEntry()) {
+        console.log('[nippo] hosts entry added');
+        if (manual)
+          notify('日報入力：ブラウザ表示を有効化しました', `${browserUrl()} で開けます。`);
+        return;
+      }
+      // UAC 拒否時は Start-Process が失敗し、外側の PowerShell が非 0 で終了する
+      console.error('[nippo] hosts entry not added (UAC denied or write failed). exit code:', code);
+      notifyHostsFailed();
     });
     return true;
   } catch (e) {
+    console.error('[nippo] hosts elevation failed:', (e && e.message) || e);
+    notifyHostsFailed();
     return false;
   }
 }
@@ -799,9 +843,9 @@ function ensureHostsEntryOnce() {
     const marker = path.join(app.getPath('userData'), `.hosts-attempted-${app.getVersion()}`);
     if (fs.existsSync(marker)) return; // 同バージョンで試行済み
     fs.writeFileSync(marker, '1');
-    ensureHostsEntry();
+    ensureHostsEntry(false); // 失敗（UAC 拒否等）は ensureHostsEntry 内で通知・ログする
   } catch (e) {
-    /* noop */
+    console.error('[nippo] hosts auto attempt failed:', (e && e.message) || e);
   }
 }
 
@@ -918,6 +962,9 @@ ipcMain.handle('clear-session', async () => {
   clearIdentity();
   return true;
 });
+
+// 現在のバージョン（フッター表示用。版数は package.json を正とし preload に持たない）。
+ipcMain.handle('get-version', () => app.getVersion());
 
 // ---- 本人特定 IPC（renderer から利用） ------------------------------------
 // 今回ログインで捕捉したメール（サイレント SSO 時は null）。

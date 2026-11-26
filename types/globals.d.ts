@@ -5,10 +5,11 @@ declare global {
   interface Window {
     appInfo: {
       name: string;
-      version: string;
       targetUrl: string;
     };
     appApi: {
+      // 現在のバージョン（main の app.getVersion()）
+      getVersion: () => Promise<string>;
       clearSession: () => Promise<boolean>;
       // 本人特定（Microsoft ログインメール捕捉 → 名称4 照合）
       getCapturedEmail: () => Promise<string | null>;
