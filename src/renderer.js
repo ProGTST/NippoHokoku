@@ -2843,20 +2843,27 @@ async function searchTantoList() {
   if (!r || !Array.isArray(r.data)) return;
   if (svalue.trim() === '') fillTantoBumonOptions(r.data);
   const bumon = getVal('tantoBumon');
-  const rows = bumon ? r.data.filter((x) => String(x['名称2'] || '') === bumon) : r.data;
+  const rows = bumon ? r.data.filter((x) => tantoBumonOf(x) === bumon) : r.data;
   renderTableInto($('tantoTable'), 'getTantoList', rows, pickTanto);
 }
-// 部門プルダウン（先頭は空＝全部門）の選択肢を、担当者の部門（名称2）の重複なし一覧で作る。
+// 部門プルダウンの「未所属」の値（部門名と重ならない固定値）。部門（名称2）が空の担当者を表す。
+const TANTO_BUMON_NONE = '__none__';
+// 担当者の部門（名称2）。空（前後の空白のみを含む）は「未所属」として扱う。
+function tantoBumonOf(row) {
+  return String(row['名称2'] || '').trim() || TANTO_BUMON_NONE;
+}
+// 部門プルダウンを「空（＝全部門）／未所属／部門（名称2 の重複なし一覧、昇順）」の構成で作る。
 // 選択中の部門は可能な限り維持する。
 function fillTantoBumonOptions(list) {
   const sel = $('tantoBumon');
   const cur = sel.value;
-  const names = [...new Set(list.map((x) => String(x['名称2'] || '').trim()).filter(Boolean))];
+  const names = [...new Set(list.map(tantoBumonOf))].filter((n) => n !== TANTO_BUMON_NONE);
   names.sort((a, b) => a.localeCompare(b, 'ja'));
   sel.innerHTML = '';
   sel.appendChild(new Option('', ''));
+  sel.appendChild(new Option('未所属', TANTO_BUMON_NONE));
   names.forEach((n) => sel.appendChild(new Option(n, n)));
-  sel.value = names.includes(cur) ? cur : '';
+  sel.value = cur === TANTO_BUMON_NONE || names.includes(cur) ? cur : '';
 }
 function pickTanto(row) {
   closeModal('tantoModal');
