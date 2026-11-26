@@ -1,0 +1,8 @@
+# 改行コードを LF に統一する（prettier は LF 前提のため）。
+# Windows の core.autocrlf=true や npm（npm version 等）が作業フォルダに CRLF を書き出すと
+# `npm run format:check` が失敗するので、テキストファイルは作業フォルダでも LF にそろえる。
+* text=auto eol=lf
+
+# バイナリ（変換しない）
+*.png binary
+*.ico binary
