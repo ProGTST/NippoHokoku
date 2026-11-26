@@ -781,6 +781,10 @@ td.gchk input {
   align-items: center;
   gap: 6px;
 }
+/* 作業時間ゲージと作業進捗の間を広げ、別の項目だと分かるようにする */
+.dh-gauge + .dh-gauge {
+  margin-left: 28px;
+}
 .dh-label {
   min-width: 92px;
   font-weight: 600;
