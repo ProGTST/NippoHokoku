@@ -277,7 +277,12 @@ function silentSsoWarmup() {
       if (!done) giveUpSoon(); // リダイレクト中の ERR_ABORTED は did-start-loading で取り消される
     });
     hardStop = setTimeout(() => finish(null), SSO_WARMUP_TIMEOUT_MS);
-    win.loadURL(RK_ORIGIN + '/kanri/nippo').catch(() => finish(null));
+    win.loadURL(RK_ORIGIN + '/kanri/nippo').catch((e) => {
+      // リダイレクト連鎖による中断は失敗ではない（did-fail-load と同じ扱い）
+      if (isLoadAborted(e)) return;
+      console.error('[nippo] silent SSO load failed:', (e && e.message) || e);
+      finish(null);
+    });
   });
   ssoWarmupInFlight = p;
   p.then(() => {
@@ -298,6 +303,14 @@ async function clearRkanriSession() {
 async function ensureRkanriSession() {
   const list = await proxyGetTantoListArray();
   return list || (await silentSsoWarmup());
+}
+
+// loadURL の失敗が「次の遷移による中断（ERR_ABORTED / -3）」か。SSO のリダイレクト連鎖で
+// 読み込み完了前に JS で次へ遷移すると、loadURL の Promise はこのエラーで reject する。
+// 連鎖の途中であり失敗ではないため、打ち切りの判断はタイマー側（did-stop-loading 等）に任せる。
+function isLoadAborted(e) {
+  const err = /** @type {any} */ (e);
+  return !!err && (err.code === 'ERR_ABORTED' || err.errno === -3);
 }
 
 function tryParseJson(text) {
@@ -350,7 +363,8 @@ function matchTantoByLocal(list, local) {
 
 // ブラウザ表示モードの本人特定（renderer の resolveLoginTanto と同一ロジック）。
 // ①メール→名称4 照合 → ②永続化 userId で名称4 再照合 → ③手動入力へ誘導。
-// 返り値: 成功 { code, name }／未ログイン { error: 'login' }／照合不可 { error: 'manual' }。
+// 返り値: 成功 { code, name, identitySaved }／未ログイン { error: 'login' }／照合不可 { error: 'manual' }。
+// identitySaved=false は identity.json の保存失敗（画面で利用者に知らせる）。
 async function resolveWhoami() {
   // セッション切れならサイレント SSO で復帰を試みる（デスクトップ版の自動認証と同等）。
   const list = await ensureRkanriSession();
@@ -360,13 +374,13 @@ async function resolveWhoami() {
     const local = capturedEmail.split('@')[0];
     const hit = matchTantoByLocal(list, local);
     if (hit) {
-      writeIdentity({
+      const ok = writeIdentity({
         email: capturedEmail,
         code: hit.key,
         name: hit['名称1'] || '',
         userId: local
       });
-      return { code: hit.key, name: hit['名称1'] || '' };
+      return { code: hit.key, name: hit['名称1'] || '', identitySaved: ok };
     }
   }
   // ② 永続化 userId（前回SSO/手動の確定値）で現在のマスタを再照合
@@ -374,13 +388,13 @@ async function resolveWhoami() {
   if (saved && saved.userId) {
     const hit = matchTantoByLocal(list, saved.userId);
     if (hit) {
-      writeIdentity({
+      const ok = writeIdentity({
         email: capturedEmail || saved.email || '',
         code: hit.key,
         name: hit['名称1'] || '',
         userId: saved.userId
       });
-      return { code: hit.key, name: hit['名称1'] || '' };
+      return { code: hit.key, name: hit['名称1'] || '', identitySaved: ok };
     }
   }
   // ③ 自動照合できず → 手動入力へ（rkanri にはログイン済み）
@@ -388,7 +402,7 @@ async function resolveWhoami() {
 }
 
 // 第2フェーズ: 手動入力したユーザーIDで本人を確定する。
-// 成功時は手動ユーザーIDを含めて永続化し（次回以降の自動認証）、{ code, name } を返す。
+// 成功時は手動ユーザーIDを含めて永続化し（次回以降の自動認証）、{ code, name, identitySaved } を返す。
 // 該当なしは { error: 'notfound' }、rkanri 未ログインは { error: 'login' }。
 async function handleManualLogin(userId) {
   const list = await ensureRkanriSession();
@@ -401,8 +415,8 @@ async function handleManualLogin(userId) {
     name: hit['名称1'] || '',
     userId: String(userId).trim()
   };
-  writeIdentity(id);
-  return { code: id.code, name: id.name };
+  const ok = writeIdentity(id);
+  return { code: id.code, name: id.name, identitySaved: ok };
 }
 
 // ブラウザ起点ログイン: SSO ログイン用ウィンドウ（persist:rkanri）を開き、ログイン完了を待つ。
@@ -428,7 +442,12 @@ function openLoginWindow() {
       webPreferences: { partition: RK_PARTITION }
     });
     loginWin.setMenuBarVisibility(false);
-    loginWin.loadURL(RK_ORIGIN + '/kanri/nippo');
+    // 読込失敗はウィンドウにエラーページが出るため利用者は閉じて中断できる。原因はログに残す
+    // （リダイレクト連鎖による中断 ERR_ABORTED は失敗ではないので出さない）。
+    loginWin.loadURL(RK_ORIGIN + '/kanri/nippo').catch((e) => {
+      if (!isLoadAborted(e))
+        console.error('[nippo] login window load failed:', (e && e.message) || e);
+    });
     loginWin.webContents.on('did-stop-loading', async () => {
       const list = await proxyGetTantoListArray();
       if (list) finish(true); // rkanri にログイン成立

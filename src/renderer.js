@@ -334,6 +334,14 @@ if (!IS_BROWSER) {
     setConn('ok', isTargetUrl() ? '接続OK' : '読込完了');
     if (document.body.classList.contains('auth') && isTargetUrl() && authMethod === 'sso')
       tryEnter(true);
+    // アプリ画面のまま webview が対象外 URL（SSO ログイン画面等）で止まった
+    // （セッション切れの状態で「↻ 再読込」した等）→ 認証画面へ戻す。アプリ画面のまま操作
+    // させると、API がログイン画面のオリジンで実行され日報データが rkanri 以外へ送られるため。
+    else if (document.body.classList.contains('app') && !isTargetUrl()) {
+      pendingListReload = false;
+      showAuth();
+      setStatus('ログインが必要です');
+    }
     // アプリ画面での再読込完了時は、戻したログイン担当者で一覧を取り直す
     else if (pendingListReload && isTargetUrl()) {
       pendingListReload = false;
@@ -482,12 +490,7 @@ async function enterWithTanto(code, name) {
 //       ・メールも永続情報も無い純初回のみ、一度だけ強制再認証（{ error: 'reauth' }）。
 async function resolveLoginTanto() {
   // 今回ログインのメール（対話ログイン時に main が捕捉。サイレントSSOでは null）
-  let email = '';
-  try {
-    email = (await window.appApi?.getCapturedEmail?.()) || '';
-  } catch (e) {
-    email = '';
-  }
+  const email = await getCapturedEmailSafe();
 
   // ① SSO自動照合: メールのローカル部（@ より前）＝名称4 で照合
   if (email) {
@@ -524,25 +527,51 @@ async function resolveLoginTanto() {
   return { error: 'manual', email };
 }
 
-// 本人確定情報を永続化する（次回の自動照合に userId を使う）。
-async function persistIdentity(email, hit, userId) {
+// 今回ログインで捕捉したメールを読む（無ければ空）。取得失敗はログに残して空として続行する。
+async function getCapturedEmailSafe() {
   try {
-    await window.appApi?.setIdentity?.({
+    return (await window.appApi?.getCapturedEmail?.()) || '';
+  } catch (e) {
+    console.error('[nippo] ログインメールの取得に失敗:', (e && e.message) || e);
+    return '';
+  }
+}
+
+// 本人確定情報を永続化する（次回の自動照合に userId を使う）。
+// 永続化の失敗は今回のログインを止めない（致命ではない）が、次回も自動認証できず
+// 手動入力が必要になり得るため、利用者に知らせてログにも残す。
+async function persistIdentity(email, hit, userId) {
+  if (!window.appApi?.setIdentity) return; // ブラウザ版はサーバー側で永続化する
+  let saved = false;
+  try {
+    saved = await window.appApi.setIdentity({
       email: email || '',
       code: hit.code,
       name: hit.name,
       userId: userId || ''
     });
   } catch (e) {
-    /* 永続化失敗は致命ではない（今回のログインは続行） */
+    console.error('[nippo] 本人情報の保存に失敗:', (e && e.message) || e);
   }
+  if (!saved) notifyIdentityNotSaved();
+}
+// 本人情報（identity.json）を保存できなかったことを利用者とログに示す。
+function notifyIdentityNotSaved() {
+  console.error('[nippo] 本人情報を保存できませんでした（identity.json）');
+  toast('本人情報を保存できませんでした。次回もユーザーIDの入力が必要になる場合があります。', 'ng');
+}
+// ブラウザ版: ローカルサーバーが本人情報の保存に失敗した（identitySaved=false）ら知らせる。
+function warnIdentityNotSaved(who) {
+  if (who && who.identitySaved === false) notifyIdentityNotSaved();
 }
 
 // 永続化した本人情報 { email, code, name, userId } を安全に読む（無ければ null）。
+// 読込失敗はログに残し、永続情報なしとして続行する（手動入力へ誘導される）。
 async function getSavedIdentity() {
   try {
     return (await window.appApi?.getIdentity?.()) || null;
   } catch (e) {
+    console.error('[nippo] 本人情報の読込に失敗:', (e && e.message) || e);
     return null;
   }
 }
@@ -664,6 +693,7 @@ async function submitManualId() {
     }
     if (who && who.code) {
       await enterWithTanto(who.code, who.name || '');
+      warnIdentityNotSaved(who);
       return;
     }
     if (who && who.error === 'login') {
@@ -685,14 +715,7 @@ async function submitManualId() {
   }
   // 永続化に添えるメール。SSO失敗のフォールバックでは pendingLoginEmail に入っている。
   // 念のため空なら捕捉メールを取り直して補完する（次回の自動照合は userId で行う）。
-  let email = pendingLoginEmail;
-  if (!email) {
-    try {
-      email = (await window.appApi?.getCapturedEmail?.()) || '';
-    } catch (e) {
-      email = '';
-    }
-  }
+  const email = pendingLoginEmail || (await getCapturedEmailSafe());
   // 手動入力したユーザーIDを永続化 → 次回は resolveLoginTanto の②で自動照合される。
   await persistIdentity(email, hit, uid);
   const ok = await enterWithTanto(hit.code, hit.name);
@@ -764,6 +787,7 @@ async function browserCheckUpdate() {
 async function browserHandleWhoami(who) {
   if (who && who.code) {
     await enterWithTanto(who.code, who.name || '');
+    warnIdentityNotSaved(who);
     return;
   }
   // 第1フェーズ失敗（メール→名称4 照合不可）→ 第2フェーズ（ユーザーID手動入力）へ。
@@ -833,12 +857,51 @@ async function execApi(endpoint, body) {
   return await rk.executeJavaScript(buildInjection(endpoint, body));
 }
 
+// ログイン切れを検出した時の共通処理（認証画面へ戻し、ログインを案内する）。
+function handleLoginRequired() {
+  setConn('warn', 'セッション切れ');
+  setStatus('ログインが必要です');
+  toast(
+    IS_BROWSER
+      ? 'ログインが必要です。「SSO認証」からログインしてください。'
+      : 'ログインが必要です。認証画面でログインしてください。',
+    'ng'
+  );
+  showAuth();
+}
+
+// ログイン画面へ弾かれた応答か。リダイレクト追従後の 2xx/3xx でログイン HTML（JSON でない
+// 文字列）が返った場合だけをログイン切れとする（main.js の isLoginBounce と同じ基準）。
+// 4xx/5xx（504 のゲートウェイ HTML 等）はサーバー側で処理済みの可能性があるため、
+// ログイン切れ扱い（＝再ログインして再送させる）にせず HTTP エラーとして表示する。
+function isLoginResponse(result) {
+  return (
+    typeof result.data === 'string' &&
+    result.status >= 200 &&
+    result.status < 400 &&
+    /<html|<!doctype|login/i.test(result.data)
+  );
+}
+
+// エラー表示用に長い応答（HTML のエラーページ等）を丸める。
+const ERR_TEXT_MAX = 300;
+function clipText(s) {
+  return s.length > ERR_TEXT_MAX ? s.slice(0, ERR_TEXT_MAX) + '…' : s;
+}
+
 // API 実行。結果(result)を返す（テーブル描画は呼び出し側の責務）。
 // ログイン切れ/HTML 応答時は認証画面に戻し null を返す。
 // silent=true のとき成功トーストを抑制（自動処理用。エラー系は抑制しない）。
 async function callApi(endpoint, body, label, silent) {
   if (!IS_BROWSER && !webReady) {
     toast('埋め込みブラウザの準備中です。ログイン後に再度お試しください。', 'ng');
+    return null;
+  }
+  // デスクトップ版は webview のページ上で fetch するため、rkanri 以外（SSO ログイン画面等）に
+  // いる間に実行すると相対 URL が別ホストに解決され、日報データがそのホストへ送られてしまう。
+  // 対象ページ以外ではログイン切れとして扱い、送信しない。
+  if (!IS_BROWSER && !isTargetUrl()) {
+    handleLoginRequired();
     return null;
   }
   let result;
@@ -856,23 +919,16 @@ async function callApi(endpoint, body, label, silent) {
     return null;
   }
 
-  // ログイン切れ検出（HTML が返る / login へリダイレクト）→ 認証画面へ
-  if (typeof result.data === 'string' && /<html|<!doctype|login/i.test(result.data)) {
-    setConn('warn', 'セッション切れ');
-    setStatus('ログインが必要です');
-    toast(
-      IS_BROWSER
-        ? 'ログインが必要です。「SSO認証」からログインしてください。'
-        : 'ログインが必要です。認証画面でログインしてください。',
-      'ng'
-    );
-    showAuth();
+  // ログイン切れ検出（2xx/3xx で HTML が返る / login へリダイレクト）→ 認証画面へ
+  if (isLoginResponse(result)) {
+    handleLoginRequired();
     return null;
   }
 
   const status = result.ok ? `OK (${result.status})` : `NG (${result.status})`;
   const biz = bizStatus(result);
-  const raw = rawText(result);
+  // 通信エラー（status 0）は data が無く error に理由が入るため、それも表示する
+  const raw = clipText(rawText(result) || (result.error ? String(result.error) : ''));
 
   // エラー時はサーバー応答をそのまま「ポップアップ（toast）」で表示（canned メッセージに変換しない）
   if (!result.ok) {
@@ -2861,10 +2917,13 @@ async function checkForUpdate() {
   try {
     r = await window.appApi.checkUpdate();
   } catch (e) {
-    btns.forEach((b) => b.classList.add('hidden')); // 失敗時はボタンを出さない
+    // 更新確認は補助機能のため画面は止めない（ボタンは出さない）。原因はログに残す
+    console.error('[nippo] 更新確認に失敗:', (e && e.message) || e);
+    btns.forEach((b) => b.classList.add('hidden'));
     return;
   }
   if (r && r.current) setVersionLabel(r.current); // 実バージョンで確定表示
+  if (r && r.error) console.error('[nippo] 更新確認に失敗:', r.error);
   if (!r || !r.available) {
     btns.forEach((b) => b.classList.add('hidden'));
     return;
