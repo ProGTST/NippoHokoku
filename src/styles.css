@@ -462,7 +462,6 @@ body.app .main-view {
 .update-btn.hidden {
   display: none;
 }
-/* 現在のバージョン表示（フッター右端。更新ボタンの右に並ぶ） */
 /* ブラウザ表示版の更新案内（ブラウザからは更新できないため、更新方法を案内する） */
 .update-notice {
   flex: none;
@@ -478,6 +477,7 @@ body.app .main-view {
 .update-notice.hidden {
   display: none;
 }
+/* 現在のバージョン表示（フッター右端。更新ボタンの右に並ぶ） */
 .ver-label {
   flex: none;
   align-self: center;
@@ -921,6 +921,20 @@ td.chk input {
 }
 .tbl-getNippoList th[data-col='案件コード'] {
   left: 38px;
+}
+/* 参照のみモードでは選択列（.chk／.gchk）を非表示にするため、固定位置を左端（0）に戻す。
+   left: 38px のままだと、案件コード列が右へずれて取引先名の先頭を隠し、左端に空白ができる。
+   日付ヘッダー行のまとまり（.dh-main）も同様に左端へ。 */
+body.view-only .tbl-getNippoList th[data-col='案件コード'],
+body.view-only .tbl-getNippoList td[data-col='案件コード'],
+body.view-only .tbl-getNippoList .dh-main {
+  left: 0;
+}
+/* 参照のみモードでは案件コード列が先頭列になるため、左罫線を付ける（td:first-child の罫線は
+   非表示の選択列に付いているため） */
+body.view-only .tbl-getNippoList th[data-col='案件コード'],
+body.view-only .tbl-getNippoList td[data-col='案件コード'] {
+  border-left: 1px solid var(--border);
 }
 /* 日報一覧の固定幅列（選択列は .chk＝width 34px／実幅 38px。以下 案件コード/取引先名/案件名/作業時間/作業内容/作業進捗）。
    width/min/max を揃えて内容に依らず一定幅にする。残り列（その他報告事項）が可変幅で残りを埋める。

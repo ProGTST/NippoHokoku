@@ -297,7 +297,13 @@ function hoursOf(r) {
 }
 // 小数誤差を丸めて表示用文字列にする（例: 7.5 / 8）。
 function fmtHours(h) {
-  return String(Math.round(h * 100) / 100);
+  return String(roundHours(h));
+}
+// 作業時間の合計を小数第2位で丸める。0.1 刻みの時間を足すと 4.6+2.8+0.6=7.999… のような
+// 誤差が出て、ちょうど 8h が「8h 未満」と判定されるため、8h との比較は必ず丸めた値で行う
+// （日付ヘッダー行のゲージと入力チェックで共用）。
+function roundHours(h) {
+  return Math.round(h * 100) / 100;
 }
 
 // 日報一覧を「日付 降順 → 作業時間 降順 → 案件コード 降順」で並べ替える。
@@ -381,6 +387,8 @@ function hideMask() {
 
 // ---- 画面切替（認証 ⇄ アプリ） -------------------------------------------
 function showAuth() {
+  // アプリ画面から戻る場合（ログイン切れ等）は、開いているモーダルを閉じる（認証画面を覆わないように）
+  if (document.body.classList.contains('app')) closeModalsForAuth();
   document.body.className = 'auth';
   updatePromptShown = false; // 再ログイン時は更新確認を再度出せるように
   setConn('warn', '認証待ち');
@@ -396,6 +404,27 @@ function enterApp() {
   updateHeaderTitle();
   alignFilterColumns(); // メイン画面表示後にレイアウトが確定してから列幅を合わせる
   checkForUpdate(); // 日報一覧の初期表示時に更新有無をチェック
+  restoreSuspendedRegist();
+}
+
+// ---- ログイン切れ時のモーダルの扱い ---------------------------------------
+// ログイン切れで認証画面へ戻すとき、モーダルが開いたままだと認証画面（webview・ログインボタン）を
+// 覆ってログインできなくなる。開いているモーダルはすべて閉じる。日報登録モーダルは入力内容を
+// フォームに残したまま閉じ、同じ担当者で再ログインしたら開き直して入力を続けられるようにする。
+let suspendedRegist = null; // { tanto } 閉じた日報登録モーダルの担当者（再ログイン後に開き直す判定用）
+function closeModalsForAuth() {
+  if (isOpen('confirmModal')) closeConfirm(false);
+  suspendedRegist = isOpen('registModal') ? { tanto: getVal('tanto') } : null;
+  qsa('.modal-overlay').forEach((el) => el.classList.add('hidden'));
+}
+// 再ログイン後、ログイン切れの前と同じ担当者なら日報登録モーダルを入力内容のまま開き直す。
+// 別の担当者で入り直した場合は開き直さない（別人の画面に前の入力を出さない）。
+function restoreSuspendedRegist() {
+  const s = suspendedRegist;
+  suspendedRegist = null;
+  if (!s || s.tanto !== getVal('tanto')) return;
+  openModal('registModal');
+  toast('ログイン前に入力していた日報登録を再表示しました。内容を確認して登録してください。', 'ok');
 }
 
 // 案件コード入力の幅を作業内容プルダウンの実幅に合わせ、
@@ -506,8 +535,12 @@ async function resolveLoginTanto() {
   // ② 永続化済みのユーザーID（前回SSO/手動で確定した値）で現在のマスタを再照合。
   //    これにより手動確定分も次回から自動認証される。名称4 が変わって一致しなく
   //    なった場合はここも外れ、③の手動入力へ誘導される。
+  //    ただし今回のメールが取れていて、保存済みのメールと違う場合は使わない。同じ PC で別の人が
+  //    ログインした（前の人がサインアウトせずにセッション切れになった）場合に、前の人として
+  //    入ってしまうのを防ぐ（main.js の resolveWhoami と同じ基準）。保存済みメールが空の場合は
+  //    どのメールで確定したか分からないため従来どおり使う。
   const saved = await getSavedIdentity();
-  if (saved && saved.userId) {
+  if (saved && saved.userId && isSameLoginEmail(email, saved.email)) {
     const hit = await lookupTantoByLocal(saved.userId);
     if (hit && hit.error) return hit;
     if (hit) {
@@ -525,6 +558,12 @@ async function resolveLoginTanto() {
 
   // ③ 自動照合できず → 手動入力へ。email は成功時の永続化に添える（無ければ空）。
   return { error: 'manual', email };
+}
+
+// 今回のメールと保存済みのメールが「同じ人」と言えるか（どちらかが空なら判断できないので true）。
+function isSameLoginEmail(email, savedEmail) {
+  if (!email || !savedEmail) return true;
+  return String(email).trim().toLowerCase() === String(savedEmail).trim().toLowerCase();
 }
 
 // 今回ログインで捕捉したメールを読む（無ければ空）。取得失敗はログに残して空として続行する。
@@ -700,6 +739,10 @@ async function submitManualId() {
       toast('ログインが必要です。「SSO認証」からログインしてください。', 'ng');
       return;
     }
+    if (who && who.error === 'server') {
+      showBrowserServerError(who);
+      return;
+    }
     showLoginError(NO_TANTO_MSG);
     return;
   }
@@ -783,11 +826,27 @@ async function browserCheckUpdate() {
   if (!t || !t.classList.contains('show')) toast(msg, 'ok');
 }
 
-// whoami/login の結果を処理: 確定→一覧、manual→手動入力、login→ログイン待ち。
+// ブラウザ版: ローカルサーバーが日報システムの障害（{error:'server', message}）を返したときの表示。
+function showBrowserServerError(who) {
+  const msg = `${who.message || '日報システムでエラーが発生しました。'}しばらくしてから再読み込みしてください。`;
+  console.error('[nippo] 日報システムの障害:', who.message || '');
+  setConn('ng', '日報システムエラー');
+  setStatus(msg);
+  toast(msg, 'ng');
+  showLoginErrorText(msg);
+}
+
+// whoami/login の結果を処理: 確定→一覧、manual→手動入力、server→障害表示、login→ログイン待ち。
 async function browserHandleWhoami(who) {
   if (who && who.code) {
     await enterWithTanto(who.code, who.name || '');
     warnIdentityNotSaved(who);
+    return;
+  }
+  // 日報システム（rkanri）の障害（4xx/5xx・通信エラー等）。未ログインとは区別し、
+  // ログインし直しを促さずにエラーとして表示する（ログインしても解決しないため）。
+  if (who && who.error === 'server') {
+    showBrowserServerError(who);
     return;
   }
   // 第1フェーズ失敗（メール→名称4 照合不可）→ 第2フェーズ（ユーザーID手動入力）へ。
@@ -835,11 +894,14 @@ function bizStatus(result) {
   if (d && typeof d === 'object' && !Array.isArray(d) && 'status' in d) return String(d.status);
   return null;
 }
+// 更新系（registData / deleteData）の成否。仕様（現行仕様.md §8.3/§8.4）どおり {status:"success"} が
+// 返ったときだけ成功とする（status の無い応答や空の本文を成功扱いにしない）。
 function isBizOk(r) {
   if (!r || !r.ok) return false;
-  const s = bizStatus(r);
-  return s === null || s === 'success';
+  return bizStatus(r) === 'success';
 }
+// 更新系 API（成功時は必ず {status:"success"} を返す）。status の無い応答は異常として扱う。
+const MUTATION_ENDPOINTS = new Set(['registData', 'deleteData']);
 // エラー応答をそのまま出すための整形（オブジェクトは JSON 文字列化、文字列はそのまま）。
 function rawText(result) {
   const d = result && result.data;
@@ -870,10 +932,13 @@ function handleLoginRequired() {
   showAuth();
 }
 
-// ログイン画面へ弾かれた応答か。リダイレクト追従後の 2xx/3xx でログイン HTML（JSON でない
-// 文字列）が返った場合だけをログイン切れとする（main.js の isLoginBounce と同じ基準）。
+// ログイン画面へ弾かれた応答か。リダイレクト追従後の 2xx/3xx でログイン HTML が返った場合だけを
+// ログイン切れとする（状態コードの基準は main.js の isLoginBounce と同じ）。
 // 4xx/5xx（504 のゲートウェイ HTML 等）はサーバー側で処理済みの可能性があるため、
 // ログイン切れ扱い（＝再ログインして再送させる）にせず HTTP エラーとして表示する。
+// ※「文字列なら全部ログイン切れ」にはできない: getTotal は正常時も JSON の文字列（"8.00"、
+//   日報の無い日は ""）を返すため（2026-11-26 実測）。画面側は JSON 解析後の値しか持たないので、
+//   HTML の特徴で判定する。空の本文などで更新系が成功扱いになる問題は isBizOk 側で防ぐ。
 function isLoginResponse(result) {
   return (
     typeof result.data === 'string' &&
@@ -936,8 +1001,9 @@ async function callApi(endpoint, body, label, silent) {
     toast(`${label || endpoint}: ${status}${raw ? ' / ' + raw : ''}`, 'ng');
     return result;
   }
-  // HTTP は 200 でも {status:"success"} 以外はビジネスエラー扱い → 応答をそのまま出す
-  if (biz !== null && biz !== 'success') {
+  // HTTP は 200 でも {status:"success"} 以外はビジネスエラー扱い → 応答をそのまま出す。
+  // 更新系は status の無い応答（空の本文など）も成功とせずエラーとして表示する。
+  if ((biz !== null && biz !== 'success') || (biz === null && MUTATION_ENDPOINTS.has(endpoint))) {
     setStatus(status + ' / ' + (raw || `status: ${biz}`));
     toast(`${label || endpoint}: ${raw || `status: ${biz}`}`, 'ng');
     return result;
@@ -1010,7 +1076,8 @@ function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGrou
   main.appendChild(dateEl);
 
   // 作業合計時間ゲージ（8h 未満=黄 / 8h ちょうど=緑 / 8h 超=赤。8h で満杯）
-  const timeCls = total < STD_HOURS ? 'g-under' : total > STD_HOURS ? 'g-over' : 'g-just';
+  const t = roundHours(total); // 小数の誤差を除いてから 8h と比べる
+  const timeCls = t < STD_HOURS ? 'g-under' : t > STD_HOURS ? 'g-over' : 'g-just';
   main.appendChild(
     buildGauge(
       `作業時間 ${fmtHours(total)}h`,
@@ -1382,12 +1449,18 @@ function initListFilter() {
 // （前の担当者の一覧）が後から届いて今の担当者・権限で表示されるのを防ぐため、
 // 最新の要求の応答だけを反映する（参照のみで見た他人の日報を全権で操作できてしまうのを防ぐ）。
 let listSeq = 0;
+// 返り値: 一覧を表示できたら true、取得に失敗したら false（一括処理の結果報告で使う）。
+// 後から別の取得・担当変更があって古い応答を捨てた場合は、失敗ではないので true。
 async function loadList() {
   const seq = ++listSeq;
   const tanto = getVal('tanto');
   const r = await callApi('getNippoList', { tanto }, '日報一覧取得');
-  if (seq !== listSeq || getVal('tanto') !== tanto) return; // 古い応答は捨てる
-  if (r && Array.isArray(r.data)) showNippoList(r.data);
+  if (seq !== listSeq || getVal('tanto') !== tanto) return true; // 古い応答は捨てる
+  if (r && Array.isArray(r.data)) {
+    showNippoList(r.data);
+    return true;
+  }
+  return false;
 }
 // ---- 入力チェック ---------------------------------------------------------
 // 対象期間: 月表示モード＝表示中の月 / 全件表示モード＝当月。いずれも今日までの日付が対象。
@@ -1420,7 +1493,7 @@ function runInputCheck() {
           item: '非稼働日',
           msg: `${label} 営業日ですが、入力がありません。よろしいでしょうか？`
         });
-    } else if (!isHoliday(n) && hoursByDate[n] < STD_HOURS) {
+    } else if (!isHoliday(n) && roundHours(hoursByDate[n]) < STD_HOURS) {
       // 入力はあるが 1日の作業時間が 8時間未満（休日出勤分は対象外）
       results.push({
         date: n,
@@ -1805,7 +1878,14 @@ async function runExclusive(fn) {
  * @param {(item: T) => string} keyOf
  */
 async function runBulk(label, items, task, keyOf) {
-  const res = { ok: 0, ng: 0, skip: 0, failed: /** @type {string[]} */ ([]), aborted: 0 };
+  const res = {
+    ok: 0,
+    ng: 0,
+    skip: 0,
+    failed: /** @type {string[]} */ ([]),
+    aborted: 0,
+    reloadFailed: false // 処理後の一覧の取り直しに失敗した（呼び出し側で設定）
+  };
   for (let i = 0; i < items.length; i++) {
     setStatus(`${label}中… ${i + 1} / ${items.length}`);
     const r = await task(items[i]);
@@ -1829,7 +1909,9 @@ function reportBulk(label, res, skipLabel) {
   if (res.ng) parts.push(`失敗 ${res.ng} 件`);
   if (res.skip) parts.push(`${skipLabel || '対象なし'} ${res.skip} 件`);
   if (res.aborted) parts.push(`未処理 ${res.aborted} 件（ログイン切れ等で中断）`);
-  const bad = res.ng > 0 || res.aborted > 0;
+  // 処理後の一覧の取り直しに失敗した場合、一覧は処理前のまま（削除済みの行が残る等）なので必ず知らせる
+  if (res.reloadFailed) parts.push('一覧の再取得に失敗（「↻ 一覧更新」を押してください）');
+  const bad = res.ng > 0 || res.aborted > 0 || res.reloadFailed;
   toast(`${label}: ${parts.join(' / ')}`, bad ? 'ng' : 'ok');
   const detail = res.failed.length ? ` / 失敗: ${res.failed.join(', ')}` : '';
   setStatus(bad ? `${label}: ${parts.join(' / ')}${detail}` : '');
@@ -2009,7 +2091,7 @@ async function doBulkCopyInner() {
       ),
     ({ r, d }) => `${r['日報コード']}→${d}`
   );
-  if (!res.aborted) await loadList(); // 中断（ログイン切れ等）時は取り直さない
+  if (!res.aborted) res.reloadFailed = !(await loadList()); // 中断（ログイン切れ等）時は取り直さない
   reportBulk('一括コピー', res);
 }
 
@@ -2034,7 +2116,7 @@ async function doBulkDeleteInner() {
     (r) => callApi('deleteData', { nippoCd: r['日報コード'] }, '一括削除', true),
     (r) => String(r['日報コード'])
   );
-  if (!res.aborted) await loadList(); // 中断（ログイン切れ等）時は取り直さない
+  if (!res.aborted) res.reloadFailed = !(await loadList()); // 中断（ログイン切れ等）時は取り直さない
   reportBulk('一括削除', res);
 }
 
@@ -2424,7 +2506,7 @@ async function doBulkChangeInner() {
     (body) => String(body.nippoCd)
   );
   res.skip = unchanged;
-  if (!res.aborted) await loadList();
+  if (!res.aborted) res.reloadFailed = !(await loadList());
   reportBulk('一括変更', res, '変更なし');
 }
 
@@ -2516,7 +2598,7 @@ async function doBulkReplaceInner() {
     (body) => String(body.nippoCd)
   );
   res.skip = unchanged;
-  if (!res.aborted) await loadList();
+  if (!res.aborted) res.reloadFailed = !(await loadList());
   reportBulk('一括置換', res);
 }
 
@@ -2646,11 +2728,25 @@ function buildBulkIndivGrid() {
 
 // 個別変更のコントロールに変更検知を付ける。初期値と異なる間だけ薄赤（bi-changed）にする。
 /** @param {any} el */
+// 送信に成功した後は resetIndivBase() で基準値を送信後の値に置き換え、薄赤を外す。
 function wireIndivChange(el) {
-  const initial = el.value;
+  let initial = el.value;
   const update = () => el.classList.toggle('bi-changed', el.value !== initial);
   el.addEventListener('input', update);
   el.addEventListener('change', update);
+  el.resetIndivBase = () => {
+    initial = el.value;
+    update();
+  };
+}
+// 個別変更で送信に成功した行の変更表示（薄赤）を消し、以後はその値を基準に変更を判定する。
+// 一部失敗でモーダルを開いたままにしたとき、どの行が未反映（＝薄赤のまま）か分かるようにする。
+function markIndivSaved(e) {
+  [e.date, e.sagyoNaiyo, e.sagyozikan, e.sagyoShinchoku, e.okure, e.sonota].forEach((el) => {
+    if (el && el.resetIndivBase) el.resetIndivBase();
+  });
+  e.ankenInitial = e.ankenCd.value;
+  e.ankenCd.classList.remove('bi-changed');
 }
 
 // 個別変更の全幅テキスト段（ラベル + テキストエリアを colspan で1行に）。
@@ -2755,14 +2851,17 @@ async function doBulkIndivInner() {
     jobs,
     async (j) => {
       const r = await callApi('registData', j.body, '個別変更', true);
-      if (isBizOk(r)) j.e.sentBody = j.body; // 成功した行は以後「変更なし」扱い
+      if (isBizOk(r)) {
+        j.e.sentBody = j.body; // 成功した行は以後「変更なし」扱い
+        markIndivSaved(j.e); // 薄赤を外し、未反映の行だけが薄赤で残るようにする
+      }
       return r;
     },
     (j) => String(j.e.nippoCd)
   );
   // 全件成功時のみ閉じる。失敗・中断がある場合は編集内容を残し、失敗行だけ再実行できるようにする
   if (!res.ng && !res.aborted) closeModal('bulkEditModal');
-  if (!res.aborted) await loadList();
+  if (!res.aborted) res.reloadFailed = !(await loadList());
   reportBulk('個別変更', res);
 }
 
@@ -2997,10 +3096,18 @@ async function startUpdateFlow() {
     b.textContent = '⬆ 更新中…';
   });
   toast('更新をダウンロードしています…', 'ok');
+  // ダウンロードの失敗はここ（start-update の戻り値）だけでトースト表示する。error イベント
+  // （phase:'download'）はボタンを戻すだけにし、同じ失敗を2回表示しないようにする。
+  let r;
   try {
-    await window.appApi.startUpdate();
+    r = await window.appApi.startUpdate();
   } catch (e) {
-    toast('更新の開始に失敗しました: ' + ((e && e.message) || e), 'ng');
+    r = { ok: false, error: String((e && e.message) || e) };
+  }
+  if (!r || !r.ok) {
+    const msg = String((r && r.error) || '');
+    console.error('[nippo] 更新のダウンロードに失敗:', msg);
+    toast('更新に失敗しました: ' + clipText(msg), 'ng');
     resetUpdateBtn();
   }
 }
@@ -3019,22 +3126,26 @@ function wireUpdateStatus() {
   window.appApi.onUpdateStatus((s) => {
     if (!s) return;
     if (s.state === 'downloading') {
+      // トレイの「更新を確認」から始まったダウンロードでも、ボタンを処理中の表示にそろえる
+      // （updateBusy を立て、ダウンロード中に再チェック・再押下させない）。
+      updateBusy = true;
       const t = `⬆ ${Math.round(s.percent || 0)}%`;
-      updateBtns().forEach((b) => (b.textContent = t));
+      updateBtns().forEach((b) => {
+        b.classList.remove('hidden');
+        b.disabled = true;
+        b.textContent = t;
+      });
     } else if (s.state === 'downloaded') {
       toast('ダウンロード完了。再起動して更新します。', 'ok');
+      // main 側で二重実行を防ぐ（トレイからも同時に要求される場合がある）
       window.appApi.quitAndInstall();
     } else if (s.state === 'error') {
-      // 起動時の自動チェック失敗（GitHub の一時的な 5xx 等）はユーザーへ出さない。
-      // electron-updater は checkForUpdates 失敗でも error イベントを発火するため、
-      // ここで抑止しないと GitHub 障害のたびに巨大な赤エラーが表示されてしまう。
-      // ユーザーが「⬆ 更新」を押してダウンロード進行中(updateBusy)のときだけ通知する。
-      if (updateBusy) {
-        const msg = String(s.message || '');
-        // GitHub の HTML エラーページ等で極端に長いことがあるため丸める。
-        toast('更新エラー: ' + (msg.length > 200 ? msg.slice(0, 200) + '…' : msg), 'ng');
-        resetUpdateBtn();
-      }
+      // 更新確認（phase:'check'）の失敗は出さない。起動時の自動チェックやトレイ・ブラウザ版の確認が
+      // GitHub の一時的な 5xx 等で失敗するたびに、無関係なエラーを出さないため（画面の確認結果は
+      // check-update の戻り値で扱う）。ダウンロード中のダウンロードはこの失敗で止まらない。
+      // ダウンロード（phase:'download'）の失敗はボタンを元に戻すだけ。利用者への表示は、
+      // 画面から始めた場合は startUpdateFlow、トレイから始めた場合は OS 通知で行う。
+      if (s.phase === 'download') resetUpdateBtn();
     }
   });
 }
@@ -3071,9 +3182,13 @@ function wire() {
     }
   });
   $('btnReload').addEventListener('click', () => {
-    // ブラウザ表示版は webview を持たないため一覧のみ取り直す
+    // ブラウザ表示版は webview を持たないため、ログイン担当者に戻して（参照のみも解除）一覧を取り直す
+    // （デスクトップ版と同じく「↻ 再読込」でログイン担当者へ戻る仕様にそろえる）
     if (IS_BROWSER) {
-      if (document.body.classList.contains('app')) loadList();
+      if (document.body.classList.contains('app')) {
+        restoreLoginTanto();
+        loadList();
+      }
       return;
     }
     webReady = false;
@@ -3213,6 +3328,10 @@ function wire() {
   $('btnConfirmCancel').addEventListener('click', () => closeConfirm(false));
   $('confirmModal').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+      // ボタンにフォーカスがあるときは、そのボタンの押下（Enter での click）に任せる。
+      // 以前はフォーカス位置に関係なく OK 扱いにしていたため、Tab で「キャンセル」へ
+      // 移して Enter を押しても OK（一括削除など）が実行されていた。
+      if (/** @type {any} */ (e.target).tagName === 'BUTTON') return;
       e.preventDefault();
       closeConfirm(true);
     } else if (e.key === 'Escape') {

@@ -18,9 +18,11 @@ contextBridge.exposeInMainWorld('appApi', {
   clearIdentity: () => ipcRenderer.invoke('clear-identity'),
   // 自動更新（GitHub Releases）
   checkUpdate: () => ipcRenderer.invoke('check-update'),
+  // 成功 { ok: true }／失敗 { ok: false, error }（例外は投げない）
   startUpdate: () => ipcRenderer.invoke('start-update'),
   quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
   // 更新状態の通知購読。返り値の関数で解除できる。
+  // state='error' には phase（'check'＝更新確認中／'download'＝ダウンロード中）が付く。
   onUpdateStatus: (cb) => {
     const listener = (_e, data) => cb(data);
     ipcRenderer.on('update-status', listener);

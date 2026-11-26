@@ -34,11 +34,14 @@ declare global {
         dev?: boolean;
         error?: string;
       }>;
-      startUpdate: () => Promise<boolean>;
+      // 例外は投げない。失敗時は ok=false と error（メッセージ）を返す。
+      startUpdate: () => Promise<{ ok: boolean; error?: string }>;
       quitAndInstall: () => Promise<void>;
       onUpdateStatus: (
         cb: (data: {
           state: 'available' | 'none' | 'downloading' | 'downloaded' | 'error';
+          // state='error' のときだけ付く: 更新確認中（'check'）かダウンロード中（'download'）か
+          phase?: 'check' | 'download';
           version?: string;
           percent?: number;
           message?: string;

@@ -184,17 +184,27 @@ function proxyToRkanri(endpoint, bodyStr) {
   });
 }
 
-// getTantoList 全件を配列で取得（未ログイン時は HTML が返るため null）。
-async function proxyGetTantoListArray() {
+// getTantoList 全件を取得し、ログイン切れとサーバー障害を区別して返す。
+// 判定基準は API 中継の isLoginBounce と同じ（2xx/3xx かつ JSON でない＝ログイン画面へ弾かれた）。
+// 返り値: 成功 { list }／ログイン切れ { error: 'login' }／
+//         サーバー障害（4xx/5xx・通信エラー status 0・JSON だが配列でない）{ error: 'server', message }。
+async function proxyGetTantoList() {
   const r = await proxyToRkanri('getTantoList', JSON.stringify({ svalue: '' }));
-  if (!r.ok) return null;
-  let data;
-  try {
-    data = JSON.parse(r.body);
-  } catch (e) {
-    return null; // HTML/login 応答 → 未ログイン
+  const parsed = tryParseJson(r.body);
+  if (isLoginBounce(r, parsed)) return { error: 'login' };
+  if (!r.ok) {
+    const message =
+      r.status === 0
+        ? `日報システムに接続できませんでした（通信エラー: ${r.error || '不明'}）。`
+        : `日報システムがエラーを返しました（状態コード ${r.status}）。`;
+    return { error: 'server', message };
   }
-  return Array.isArray(data) ? data : null;
+  if (!parsed.ok || !Array.isArray(parsed.value))
+    return {
+      error: 'server',
+      message: `日報システムの応答が想定外の形式でした（担当者一覧を取得できません。状態コード ${r.status}）。`
+    };
+  return { list: parsed.value };
 }
 
 // ---- サイレント SSO: 非表示ウィンドウでセッションを再確立する ---------------
@@ -262,10 +272,12 @@ function silentSsoWarmup() {
     wc.on('did-stop-loading', async () => {
       if (done) return;
       // rkanri に戻ってきていればセッション成立を確認する（取得できた一覧をそのまま返す）。
+      // サーバー障害は窓を待っても直らないが、打ち切りは従来どおりタイマーに任せる
+      // （呼び出し元 ensureRkanriSession は障害を事前に判定済みで、ここはログイン切れ時のみ通る）。
       if (wc.getURL().startsWith(RK_ORIGIN)) {
-        const list = await proxyGetTantoListArray();
-        if (list) {
-          finish(list);
+        const r = await proxyGetTantoList();
+        if (r.list) {
+          finish(r.list);
           return;
         }
       }
@@ -298,11 +310,16 @@ async function clearRkanriSession() {
   await session.fromPartition(RK_PARTITION).clearStorageData();
 }
 
-// rkanri セッションを確実にした上で担当者マスタ全件を返す（駄目なら null＝未ログイン）。
-// 素の proxy で取れなければサイレント SSO を挟む（成功時はその中で取得した一覧を返す）。
+// rkanri セッションを確実にした上で担当者マスタ全件を返す。
+// 返り値は proxyGetTantoList と同じ形（{ list }／{ error: 'login' }／{ error: 'server', message }）。
+// サイレント SSO はログイン切れのときだけ挟む（成功時はその中で取得した一覧を返す）。
+// サーバー障害は SSO をやり直しても直らず、未ログイン扱いにすると利用者を不要な対話ログイン
+// （＝セッション消去）へ誘導してしまうため、そのまま障害として返す。
 async function ensureRkanriSession() {
-  const list = await proxyGetTantoListArray();
-  return list || (await silentSsoWarmup());
+  const r = await proxyGetTantoList();
+  if (r.error !== 'login') return r;
+  const list = await silentSsoWarmup();
+  return list ? { list } : { error: 'login' };
 }
 
 // loadURL の失敗が「次の遷移による中断（ERR_ABORTED / -3）」か。SSO のリダイレクト連鎖で
@@ -363,12 +380,18 @@ function matchTantoByLocal(list, local) {
 
 // ブラウザ表示モードの本人特定（renderer の resolveLoginTanto と同一ロジック）。
 // ①メール→名称4 照合 → ②永続化 userId で名称4 再照合 → ③手動入力へ誘導。
-// 返り値: 成功 { code, name, identitySaved }／未ログイン { error: 'login' }／照合不可 { error: 'manual' }。
+// 返り値: 成功 { code, name, identitySaved }／未ログイン { error: 'login' }／照合不可 { error: 'manual' }／
+//         サーバー障害 { error: 'server', message }（画面でエラー表示する。対話ログインへは進めない）。
 // identitySaved=false は identity.json の保存失敗（画面で利用者に知らせる）。
 async function resolveWhoami() {
   // セッション切れならサイレント SSO で復帰を試みる（デスクトップ版の自動認証と同等）。
-  const list = await ensureRkanriSession();
-  if (!list) return { error: 'login' }; // rkanri 未ログイン（要 対話ログイン）
+  const r = await ensureRkanriSession();
+  if (r.error === 'server') {
+    console.error('[nippo] whoami: 担当者一覧を取得できません:', r.message);
+    return { error: 'server', message: r.message };
+  }
+  if (!r.list) return { error: 'login' }; // rkanri 未ログイン（要 対話ログイン）
+  const list = r.list;
   // ① SSO自動照合: 今回ログインのメール（@ より前）＝名称4
   if (capturedEmail) {
     const local = capturedEmail.split('@')[0];
@@ -384,8 +407,16 @@ async function resolveWhoami() {
     }
   }
   // ② 永続化 userId（前回SSO/手動の確定値）で現在のマスタを再照合
+  // 使うのは「今回のメールが取れない」「保存済み email が空（どのメールで確定したか不明。
+  // メール無しで手動確定した人が毎回手動入力にならないよう許可）」「今回のメールと保存済み email が
+  // 同じ（大文字小文字は無視）」のいずれかの場合だけ。今回のメールが保存済みと異なるのは、同じ PC で
+  // 別人がログインした場合であり、②を使うと前の人として入ってしまうため③（手動入力）へ回す。
   const saved = readIdentity();
-  if (saved && saved.userId) {
+  const sameAccount =
+    !capturedEmail ||
+    !(saved && saved.email) ||
+    capturedEmail.trim().toLowerCase() === String(saved.email).trim().toLowerCase();
+  if (saved && saved.userId && sameAccount) {
     const hit = matchTantoByLocal(list, saved.userId);
     if (hit) {
       const ok = writeIdentity({
@@ -403,10 +434,16 @@ async function resolveWhoami() {
 
 // 第2フェーズ: 手動入力したユーザーIDで本人を確定する。
 // 成功時は手動ユーザーIDを含めて永続化し（次回以降の自動認証）、{ code, name, identitySaved } を返す。
-// 該当なしは { error: 'notfound' }、rkanri 未ログインは { error: 'login' }。
+// 該当なしは { error: 'notfound' }、rkanri 未ログインは { error: 'login' }、
+// サーバー障害は { error: 'server', message }。
 async function handleManualLogin(userId) {
-  const list = await ensureRkanriSession();
-  if (!list) return { error: 'login' };
+  const r = await ensureRkanriSession();
+  if (r.error === 'server') {
+    console.error('[nippo] manual-login: 担当者一覧を取得できません:', r.message);
+    return { error: 'server', message: r.message };
+  }
+  if (!r.list) return { error: 'login' };
+  const list = r.list;
   const hit = matchTantoByLocal(list, userId);
   if (!hit) return { error: 'notfound' };
   const id = {
@@ -420,6 +457,8 @@ async function handleManualLogin(userId) {
 }
 
 // ブラウザ起点ログイン: SSO ログイン用ウィンドウ（persist:rkanri）を開き、ログイン完了を待つ。
+// 返り値: 成立 { ok: true }／中断・時間切れ { ok: false, error: 'login' }／
+//         rkanri に戻った後のサーバー障害 { ok: false, error: 'server', message }。
 function openLoginWindow() {
   return new Promise((resolve) => {
     let done = false;
@@ -448,18 +487,27 @@ function openLoginWindow() {
       if (!isLoadAborted(e))
         console.error('[nippo] login window load failed:', (e && e.message) || e);
     });
+    // ログイン切れ（IdP 上・ログイン画面）の間は利用者の操作を待つ。サーバー障害の判定は、
+    // 窓が rkanri に戻ってきた後だけ行う（IdP 上での一時的な 5xx でログイン途中に打ち切らないため）。
     loginWin.webContents.on('did-stop-loading', async () => {
-      const list = await proxyGetTantoListArray();
-      if (list) finish(true); // rkanri にログイン成立
+      if (done || !loginWin || loginWin.isDestroyed()) return;
+      const onRkanri = loginWin.webContents.getURL().startsWith(RK_ORIGIN);
+      const r = await proxyGetTantoList();
+      if (r.list)
+        finish({ ok: true }); // rkanri にログイン成立
+      else if (r.error === 'server' && onRkanri) {
+        console.error('[nippo] login window: ログイン後に担当者一覧を取得できません:', r.message);
+        finish({ ok: false, error: 'server', message: r.message });
+      }
     });
     loginWin.on('closed', () => {
       if (!done) {
         done = true;
         loginWin = null;
-        resolve(false); // ユーザーが閉じた＝ログイン中断
+        resolve({ ok: false, error: 'login' }); // ユーザーが閉じた＝ログイン中断
       }
     });
-    setTimeout(() => finish(false), 180000); // 安全弁（3分）
+    setTimeout(() => finish({ ok: false, error: 'login' }), 180000); // 安全弁（3分）
   });
 }
 
@@ -470,6 +518,7 @@ function openLoginWindow() {
 //   中断しても本人情報が失われないようにする。アカウント切替時の破棄は /api/logout（再認証）が担う。
 // - 多重実行防止: 二度押しで進行中ログインのセッションを消したり窓を2枚開いたりしないよう、
 //   進行中なら既存のログイン窓を前面に出して同じ Promise を返す（silentSsoWarmup と同じ方式）。
+// - サーバー障害（4xx/5xx・通信エラー）のときはセッションを消さずに { error: 'server', message } を返す。
 function handleBrowserLogin() {
   if (browserLoginInFlight) {
     try {
@@ -484,10 +533,18 @@ function handleBrowserLogin() {
     return browserLoginInFlight;
   }
   const p = (async () => {
+    // サーバー障害中はログインし直しても直らない。セッション（IdP の永続 Cookie を含む）を消すと
+    // 復旧後のサイレント SSO もできなくなるため、消去の前に障害かどうかを確認して止める。
+    const pre = await proxyGetTantoList();
+    if (pre.error === 'server') {
+      console.error('[nippo] login: サーバー障害のためセッションを消去せずに中止:', pre.message);
+      return { error: 'server', message: pre.message };
+    }
     await clearRkanriSession();
     capturedEmail = null;
-    const ok = await openLoginWindow();
-    if (!ok) return { error: 'login' };
+    const r = await openLoginWindow();
+    if (r.error === 'server') return { error: 'server', message: r.message };
+    if (!r.ok) return { error: 'login' };
     return await resolveWhoami();
   })();
   browserLoginInFlight = p;
@@ -551,7 +608,7 @@ function allowedOrigins() {
 // - トークン Cookie（httpOnly）がサーバー保持値と一致すること。
 // - Origin があれば「http://<許可ホスト>[:<確保ポート>]」と完全一致すること（ポート違いの別サービス等を拒否）。
 // - POST は Origin 必須（ブラウザは同一オリジンでも POST には Origin を付ける。GET の同一オリジン
-//   fetch は Origin を付けないため、GET は従来どおり Origin 無しを許容する）。
+//   fetch は Origin を付けないため、GET（/api/whoami・/api/update-info）は Origin 無しを許容する）。
 // - POST は content-type: application/json 必須（他サイトからの「単純リクエスト」では付けられず、
 //   付けると CORS プリフライト（OPTIONS）になり本サーバーは許可しないため、クロスオリジン送信を防げる）。
 // 注: これらはブラウザ経由の攻撃（他サイト・DNS リバインディング等）への対策であり、同一ユーザー権限で
@@ -827,8 +884,11 @@ function ensureHostsEntry(manual) {
         '-Command',
         // PowerShell のシングルクォート文字列に埋め込むため ' を '' でエスケープする。
         // userData パス（＝Windows ユーザー名）に ' が含まれても壊れず、注入もされない。
+        // -ArgumentList は配列で渡すと要素を引用符で囲まずに空白でつなぐため、パスに空白が
+        // あると -File の値が途中で切れる。1 つの文字列にしてパスを二重引用符で囲む。
+        // 注: Windows のパスには " を使えないため、パス中の " のエスケープは考慮しない。
         // -Wait で昇格側の終了を待ち、終了後に hosts を再判定して結果を通知する。
-        `Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1.replace(/'/g, "''")}'`
+        `Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${ps1.replace(/'/g, "''")}"'`
       ],
       { windowsHide: true, detached: true }
     );
@@ -922,10 +982,48 @@ function getUpdater() {
   autoUpdater.on('update-downloaded', (info) =>
     sendUpdateStatus({ state: 'downloaded', version: info && info.version })
   );
+  // phase: ダウンロード中のエラーか（'download'）、更新確認のエラーか（'check'）を画面で区別する。
   autoUpdater.on('error', (err) =>
-    sendUpdateStatus({ state: 'error', message: String((err && err.message) || err) })
+    sendUpdateStatus({
+      state: 'error',
+      phase: updateDownloading ? 'download' : 'check',
+      message: String((err && err.message) || err)
+    })
   );
   return autoUpdater;
+}
+
+// 更新のダウンロード中か（'error' イベントのフェーズ判定用）。トレイと画面の両方から使う。
+let updateDownloading = false;
+// downloadUpdate をダウンロード中フラグ付きで実行する（成否にかかわらず finally で戻す）。
+async function downloadUpdateTracked() {
+  updateDownloading = true;
+  try {
+    await getUpdater().downloadUpdate();
+  } finally {
+    updateDownloading = false;
+  }
+}
+
+// 更新の適用（インストーラ起動＋再起動）を一度だけ要求する。
+// electron-updater の quitAndInstall は 2 回目の呼び出しで install() が false を返すと
+// 内部の quitAndInstallCalled を false に戻すため、アプリ終了時の onQuit ハンドラ
+// （autoInstallOnAppQuit=true）が install を再実行し、インストーラが 2 回起動してしまう。
+// トレイの「更新を確認」と画面の更新ボタンの両方から呼ばれ得るため、2 回目以降は何もしない。
+let installRequested = false;
+function requestInstall() {
+  if (installRequested) {
+    console.log('[nippo] quitAndInstall は要求済みのため無視しました');
+    return;
+  }
+  installRequested = true;
+  try {
+    getUpdater().quitAndInstall();
+  } catch (e) {
+    // 同期例外で終了処理に進まなかった場合は、やり直せるようにフラグを戻して呼び出し元へ伝える。
+    installRequested = false;
+    throw e;
+  }
 }
 
 // window.open の共通ハンドラ: http/https のみ既定ブラウザで開き、アプリ内には新規窓を作らない
@@ -1056,7 +1154,7 @@ async function checkUpdateWithRetry() {
     error: String((lastErr && lastErr.message) || lastErr)
   };
 }
-// 日報一覧の初期表示時に呼ばれ、結果で更新ボタンの表示を制御する。
+// ログイン画面の起動時と日報一覧の初期表示時に呼ばれ、結果で更新ボタンの表示を制御する。
 ipcMain.handle('check-update', () => checkUpdateWithRetry());
 
 // ブラウザ表示版の更新案内用。ページを開くたびに GitHub へ問い合わせないよう、
@@ -1121,8 +1219,8 @@ async function trayCheckUpdate() {
     if (response !== 0) return;
     notify('日報入力：更新をダウンロードしています', '完了すると自動で再起動して更新します。');
     // downloadUpdate はダウンロード完了で解決する（進捗は画面が開いていれば更新ボタンにも表示される）
-    await getUpdater().downloadUpdate();
-    getUpdater().quitAndInstall();
+    await downloadUpdateTracked();
+    requestInstall();
   } catch (e) {
     const msg = String((e && e.message) || e);
     console.error('[nippo] tray update failed:', msg);
@@ -1133,14 +1231,22 @@ async function trayCheckUpdate() {
 }
 
 // 更新ボタン押下 → 最新版をダウンロード（完了は update-downloaded イベントで通知）。
+// 例外は投げずに結果を返す（成功 { ok: true }／失敗 { ok: false, error: メッセージ }）。
+// IPC の reject は「Error invoking remote method ...」の前置きが付き利用者向けに表示しづらいため。
 ipcMain.handle('start-update', async () => {
-  await getUpdater().downloadUpdate();
-  return true;
+  try {
+    await downloadUpdateTracked();
+    return { ok: true };
+  } catch (e) {
+    const error = String((e && e.message) || e);
+    console.error('[nippo] update download failed:', error);
+    return { ok: false, error };
+  }
 });
 
-// ダウンロード済みの更新を適用してアプリを再起動する。
+// ダウンロード済みの更新を適用してアプリを再起動する（二重実行は requestInstall 側で防ぐ）。
 ipcMain.handle('quit-and-install', () => {
-  getUpdater().quitAndInstall();
+  requestInstall();
 });
 
 // トレイ常駐＋ローカルサーバーは 1 プロセスに限定する。
