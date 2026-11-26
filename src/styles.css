@@ -774,13 +774,19 @@ td.gchk input {
   font-weight: 700;
   font-size: 12.5px;
   min-width: 118px;
-  /* 横スクロール中も日付が見えるよう、固定した選択列のすぐ右に留める。
-     セル左余白(8px)の分も背景で覆い（padding で広げ、margin で元の位置へ戻す）、
-     下を流れるゲージが選択列との隙間から透けて見えないようにする。 */
+}
+/* 日付・作業時間合計・作業進捗のまとまり。横スクロール中もまとめて固定した選択列のすぐ右に留める。
+   セル左余白(8px)の分も背景で覆い（padding で広げ、margin で元の位置へ戻す）、
+   選択列との隙間から下の内容が透けて見えないようにする。 */
+.dh-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
   position: sticky;
   left: 38px; /* 選択列の実幅 */
   padding-left: 8px;
   margin-left: -8px;
+  padding-right: 8px;
   z-index: 1;
   background: var(--date-row-bg);
 }

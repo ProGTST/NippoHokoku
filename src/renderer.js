@@ -909,15 +909,20 @@ function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGrou
   td.colSpan = colCount;
   const box = document.createElement('div');
   box.className = 'date-head';
+  // 日付・作業時間合計・作業進捗は1つのまとまり（dh-main）にし、横スクロール中もまとめて
+  // 左側に固定表示する（CSS の position: sticky）。作業件数は右端に別で置く。
+  const main = document.createElement('span');
+  main.className = 'dh-main';
+  box.appendChild(main);
 
   const dateEl = document.createElement('span');
   dateEl.className = 'dh-date ' + dowClass(dn);
   dateEl.textContent = fmtDateWithDow(dn);
-  box.appendChild(dateEl);
+  main.appendChild(dateEl);
 
   // 作業合計時間ゲージ（8h 未満=黄 / 8h ちょうど=緑 / 8h 超=赤。8h で満杯）
   const timeCls = total < STD_HOURS ? 'g-under' : total > STD_HOURS ? 'g-over' : 'g-just';
-  box.appendChild(
+  main.appendChild(
     buildGauge(
       `作業時間 ${fmtHours(total)}h`,
       Math.min(total / STD_HOURS, 1),
@@ -948,7 +953,7 @@ function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGrou
     const detail = Object.keys(counts)
       .map((s) => `${s} ${Math.round((counts[s] / dayAll.length) * 100)}%`)
       .join(' / ');
-    box.appendChild(buildGauge(`${top} ${Math.round(ratio * 100)}%`, ratio, shCls, detail));
+    main.appendChild(buildGauge(`${top} ${Math.round(ratio * 100)}%`, ratio, shCls, detail));
   }
 
   // 作業件数は行の右端に表示する（CSS で右寄せ。横スクロール中も見える位置に固定）
