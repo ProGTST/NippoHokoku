@@ -1253,7 +1253,7 @@ function showInputCheck() {
     table.className = 'tbl-check';
     const thead = document.createElement('thead');
     const htr = document.createElement('tr');
-    ['対象日付', 'チェック種別', 'チェック項目', 'チェックメッセージ'].forEach((h) => {
+    ['日付', '種別', 'チェック', 'メッセージ'].forEach((h) => {
       const th = document.createElement('th');
       th.textContent = h;
       htr.appendChild(th);
