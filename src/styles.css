@@ -463,6 +463,21 @@ body.app .main-view {
   display: none;
 }
 /* 現在のバージョン表示（フッター右端。更新ボタンの右に並ぶ） */
+/* ブラウザ表示版の更新案内（ブラウザからは更新できないため、更新方法を案内する） */
+.update-notice {
+  flex: none;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.update-notice.hidden {
+  display: none;
+}
 .ver-label {
   flex: none;
   align-self: center;

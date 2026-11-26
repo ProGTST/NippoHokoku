@@ -727,6 +727,34 @@ async function browserLogin() {
   await browserHandleWhoami(who);
 }
 
+// ブラウザ表示版の更新案内。ブラウザからは更新できないため、新しいバージョンがあれば
+// 「タスクトレイの『更新を確認』またはデスクトップ画面から更新」するよう案内する
+// （トーストで一度知らせ、フッターにも常時表示する）。あわせて現在のバージョンを表示する。
+async function browserCheckUpdate() {
+  let info;
+  try {
+    info = await apiGet('/api/update-info');
+  } catch (e) {
+    // 更新確認は補助機能のため画面は止めず、原因はログに残す
+    console.error('[nippo] 更新確認に失敗:', (e && e.message) || e);
+    return;
+  }
+  if (!info) return;
+  if (info.current) setVersionLabel(info.current);
+  if (info.error) {
+    console.error('[nippo] 更新確認に失敗（ローカルサーバー側で GitHub に接続できませんでした）');
+    return;
+  }
+  if (!info.available) return;
+  const msg = `新しいバージョン v${info.version} があります。タスクトレイの「更新を確認」またはデスクトップ画面から更新してください。`;
+  qsa('.update-notice').forEach((el) => {
+    el.textContent = `⬆ v${info.version} があります（トレイ／デスクトップ画面から更新）`;
+    el.title = msg;
+    el.classList.remove('hidden');
+  });
+  toast(msg, 'ok');
+}
+
 // whoami/login の結果を処理: 確定→一覧、manual→手動入力、login→ログイン待ち。
 async function browserHandleWhoami(who) {
   if (who && who.code) {
@@ -3154,6 +3182,7 @@ if (IS_BROWSER) {
   // ブラウザ表示版: <webview> や自動更新は使わず、ローカルサーバー経由で動作する。
   document.documentElement.classList.add('browser-mode');
   browserBoot();
+  browserCheckUpdate();
 } else {
   // デスクトップ版: 従来どおり webview で認証し、更新チェックも行う。
   showAuth();

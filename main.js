@@ -8,7 +8,8 @@ const {
   Tray,
   Menu,
   nativeImage,
-  Notification
+  Notification,
+  dialog
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -599,6 +600,9 @@ function startLocalServer() {
         const action = pathname.slice('/api/'.length);
         if (req.method === 'GET' && action === 'whoami')
           return sendLocalJson(res, await resolveWhoami());
+        // ブラウザ表示版の更新案内用（ブラウザからは更新できないため、有無と版数だけ返す）
+        if (req.method === 'GET' && action === 'update-info')
+          return sendLocalJson(res, await getUpdateInfoCached());
         if (req.method === 'POST' && action === 'login')
           return sendLocalJson(res, await handleBrowserLogin());
         if (req.method === 'POST' && action === 'manual-login') {
@@ -726,6 +730,9 @@ function setupTray() {
           label: 'ブラウザ表示を有効化（hosts に nippo.local を追記）',
           click: () => ensureHostsEntry(true)
         },
+        { type: 'separator' },
+        // デスクトップ画面を開かずに常駐している場合（自動起動・ブラウザ表示のみ利用）でも更新できるようにする
+        { label: '更新を確認', click: () => trayCheckUpdate() },
         { type: 'separator' },
         {
           label: '終了',
@@ -996,9 +1003,10 @@ function isTransientUpdateError(e) {
 
 const updateDelay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// 更新の有無を確認する。日報一覧の初期表示時に呼ばれ、結果で更新ボタンの表示を制御する。
+// 更新の有無を確認する（画面の更新ボタン表示判定とトレイの「更新を確認」で共用）。
 // 開発（未パッケージ）時は更新チェックできないため available:false を返す。
-ipcMain.handle('check-update', async () => {
+// 返り値: { available, version, current } / 失敗時は { available:false, current, error }
+async function checkUpdateWithRetry() {
   const current = app.getVersion();
   if (!app.isPackaged) return { available: false, current, dev: true };
   const maxAttempts = 3;
@@ -1028,7 +1036,82 @@ ipcMain.handle('check-update', async () => {
     current,
     error: String((lastErr && lastErr.message) || lastErr)
   };
-});
+}
+// 日報一覧の初期表示時に呼ばれ、結果で更新ボタンの表示を制御する。
+ipcMain.handle('check-update', () => checkUpdateWithRetry());
+
+// ブラウザ表示版の更新案内用。ページを開くたびに GitHub へ問い合わせないよう、
+// 確認できた結果を 30 分キャッシュする（失敗結果はキャッシュせず次回に再確認する）。
+const UPDATE_INFO_TTL_MS = 30 * 60 * 1000;
+let updateInfoCache = null; // { at, value }
+async function getUpdateInfoCached() {
+  if (updateInfoCache && Date.now() - updateInfoCache.at < UPDATE_INFO_TTL_MS)
+    return updateInfoCache.value;
+  const r = await checkUpdateWithRetry();
+  const value = { available: !!r.available, version: r.version || '', current: r.current };
+  if (r.error) {
+    console.error('[nippo] update-info check failed:', r.error);
+    return { ...value, error: true };
+  }
+  updateInfoCache = { at: Date.now(), value };
+  return value;
+}
+
+// トレイの「更新を確認」。画面を開いていなくても、確認 → ダウンロード → 再起動して適用まで行う。
+// 結果（最新版・失敗・ダウンロード開始）は OS 通知で、更新するかどうかは確認ダイアログで知らせる。
+let trayUpdateBusy = false;
+async function trayCheckUpdate() {
+  if (trayUpdateBusy) {
+    notify('日報入力：更新を処理中です', '完了するまでお待ちください。');
+    return;
+  }
+  trayUpdateBusy = true;
+  try {
+    const r = await checkUpdateWithRetry();
+    if (r.dev) {
+      notify(
+        '日報入力：更新を確認できません',
+        '開発環境（未パッケージ）では更新を確認できません。'
+      );
+      return;
+    }
+    if (r.error) {
+      console.error('[nippo] tray update check failed:', r.error);
+      notify(
+        '日報入力：更新を確認できませんでした',
+        'ネットワーク接続を確認して、しばらくしてから再度お試しください。'
+      );
+      return;
+    }
+    if (!r.available) {
+      notify('日報入力：最新版です', `現在のバージョン v${r.current} は最新です。`);
+      return;
+    }
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      title: '日報入力',
+      message: `新しいバージョン v${r.version} があります（現在 v${r.current}）。`,
+      detail:
+        '今すぐダウンロードして更新しますか？\n' +
+        'ダウンロード後にアプリが再起動します。デスクトップ画面で入力中の内容は保存されません。',
+      buttons: ['更新して再起動', '後で'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    });
+    if (response !== 0) return;
+    notify('日報入力：更新をダウンロードしています', '完了すると自動で再起動して更新します。');
+    // downloadUpdate はダウンロード完了で解決する（進捗は画面が開いていれば更新ボタンにも表示される）
+    await getUpdater().downloadUpdate();
+    getUpdater().quitAndInstall();
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    console.error('[nippo] tray update failed:', msg);
+    notify('日報入力：更新に失敗しました', msg.length > 200 ? msg.slice(0, 200) + '…' : msg);
+  } finally {
+    trayUpdateBusy = false;
+  }
+}
 
 // 更新ボタン押下 → 最新版をダウンロード（完了は update-downloaded イベントで通知）。
 ipcMain.handle('start-update', async () => {
