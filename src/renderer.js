@@ -73,12 +73,12 @@ const DISPLAY_COLS = {
     'その他報告事項'
   ],
   gethistory: ['案件コード', '取引先名', '案件名'],
-  getTantoList: ['key', '名称1']
+  getTantoList: ['key', '名称1', '名称2']
 };
 
 // 表示列の見出しラベル（生キーが英字等の場合の日本語化。現行仕様.md §6.2）。
 const HEADER_LABELS = {
-  getTantoList: { key: '担当者コード', 名称1: '担当者名' }
+  getTantoList: { key: '担当者コード', 名称1: '担当者名', 名称2: '部門' }
 };
 
 // ---- 要素参照 -------------------------------------------------------------
@@ -2827,16 +2827,36 @@ function pickAnken(row) {
 // 登録モーダルからの担当者変更は廃止（①）。担当者マスタ一覧は「担当変更」からのみ開く。
 function openTantoModal() {
   setVal('svalue2', '');
+  setVal('tantoBumon', '');
   openModal('tantoModal');
   $('svalue2').focus();
   searchTantoList(); // 初期表示は全件（svalue 空）を実行して表示（検索ボタンは再検索用）
 }
+// 担当者マスタを検索して一覧を描画する。部門（名称2）は API では絞り込めない
+// （getTantoList は部門パラメータを無視する。実測確認済み）ため、取得結果を画面側で絞り込む。
+// 検索文字が空（＝在籍者全件）の結果から部門プルダウンの選択肢を作り直す。
 async function searchTantoList() {
   const seq = ++tantoSeq;
-  const r = await callApi('getTantoList', { svalue: getVal('svalue2') }, '担当者検索');
+  const svalue = getVal('svalue2');
+  const r = await callApi('getTantoList', { svalue }, '担当者検索');
   if (seq !== tantoSeq) return; // 後から出した要求がある（古い応答は捨てる）
-  if (r && Array.isArray(r.data))
-    renderTableInto($('tantoTable'), 'getTantoList', r.data, pickTanto);
+  if (!r || !Array.isArray(r.data)) return;
+  if (svalue.trim() === '') fillTantoBumonOptions(r.data);
+  const bumon = getVal('tantoBumon');
+  const rows = bumon ? r.data.filter((x) => String(x['名称2'] || '') === bumon) : r.data;
+  renderTableInto($('tantoTable'), 'getTantoList', rows, pickTanto);
+}
+// 部門プルダウン（先頭は空＝全部門）の選択肢を、担当者の部門（名称2）の重複なし一覧で作る。
+// 選択中の部門は可能な限り維持する。
+function fillTantoBumonOptions(list) {
+  const sel = $('tantoBumon');
+  const cur = sel.value;
+  const names = [...new Set(list.map((x) => String(x['名称2'] || '').trim()).filter(Boolean))];
+  names.sort((a, b) => a.localeCompare(b, 'ja'));
+  sel.innerHTML = '';
+  sel.appendChild(new Option('', ''));
+  names.forEach((n) => sel.appendChild(new Option(n, n)));
+  sel.value = names.includes(cur) ? cur : '';
 }
 function pickTanto(row) {
   closeModal('tantoModal');
