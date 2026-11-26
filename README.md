@@ -208,22 +208,17 @@
 前提: Node.js（v24 で確認）/ npm。社内 LAN・VPN 接続端末。
 
 ```sh
-npm install        # 依存（electron / electron-packager / electron-builder）を導入
-npm start          # 開発起動（アプリを立ち上げて動作確認）
-npm run pack       # 実行可能な exe を生成（推奨・検証済み）
+npm install           # 依存（electron / electron-builder 等）を導入
+npm start             # 開発起動（アプリを立ち上げて動作確認）
+npm run dist          # インストーラ（NSIS）を生成 → dist/日報入力-Setup-<version>.exe
+npm run dist:portable # 単一 exe（portable）を生成 → dist/日報入力-<version>.exe（自動更新は非対応）
 ```
 
-- `npm run pack` の生成物: `dist/NippoHokoku-win32-x64/`（フォルダ）。この中の **`NippoHokoku.exe` を実行するとアプリが起動**します（インストール不要）。配布はこのフォルダごと行います（約 270MB）。
-- 初回はアプリ内の埋め込み画面で対象システム（Microsoft SSO）にログインしてください。ログイン後、左パネルの操作から各 API を実行できます。
-
-#### 単一 exe（portable）で配布したい場合
-
-`npm run dist`（electron-builder）で単一 exe を生成できますが、本環境では **Windows のシンボリックリンク作成権限**が必要です（署名ツール展開のため）。以下のいずれかを実施してから実行してください。
-
-- Windows の **開発者モード（Developer Mode）を ON**（設定 > プライバシーとセキュリティ > 開発者向け）、または
-- 管理者権限のターミナルで実行
-
-未対応の場合は上記 `npm run pack`（フォルダ + exe）で配布してください。
+- `dist` / `dist:portable` / `publish` は、環境変数 **`UPDATE_TOKEN`**（自動更新用トークン）が未設定だとビルドを中止します（空トークン版の配布防止）。PowerShell なら `$env:UPDATE_TOKEN = '<トークン>'` を設定してから実行してください。
+- リリース（GitHub Releases への発行）は `npm run publish`。手順は [リリース手順.md](リリース手順.md) を参照。
+- 旧 `npm run pack`（electron-packager）は electron-builder に一本化したため**廃止**しました。
+- 初回はアプリ内の埋め込み画面で対象システム（Microsoft SSO）にログインしてください。
+- electron-builder は署名ツール展開時に Windows のシンボリックリンク作成権限を求めることがあります。失敗する場合は Windows の**開発者モードを ON** にするか、管理者権限のターミナルで実行してください（詳細は [新仕様.md](新仕様.md) §7.1）。
 
 > 補足: 開発 PC の環境変数に `ELECTRON_RUN_AS_NODE=1` が設定されていると、`electron` が GUI ではなく Node として起動します。GUI 起動時はこの変数を解除してください。
 
