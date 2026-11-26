@@ -402,6 +402,12 @@ async function tryEnter(silent) {
         reauth();
         return;
       }
+      if (id.error === 'api') {
+        // 担当者マスタの取得失敗（通信・HTTP・業務エラー）。照合不可ではないので手動入力へ回さない
+        // （ログイン切れの場合は callApi 内で認証画面へ戻し済み）。
+        showLoginError(API_FAIL_MSG);
+        return;
+      }
       // 第1フェーズ失敗 → 第2フェーズ（ユーザーID手動入力）へ誘導。
       // id.email は捕捉できていれば手動入力欄の初期候補＆永続化に使う。
       showManualAuth(id.email || '');
@@ -456,6 +462,7 @@ async function resolveLoginTanto() {
   if (email) {
     const local = String(email).split('@')[0];
     const hit = await lookupTantoByLocal(local);
+    if (hit && hit.error) return hit; // マスタ取得失敗は照合不可と区別して呼び出し側へ
     if (hit) {
       await persistIdentity(email, hit, local);
       return hit;
@@ -468,6 +475,7 @@ async function resolveLoginTanto() {
   const saved = await getSavedIdentity();
   if (saved && saved.userId) {
     const hit = await lookupTantoByLocal(saved.userId);
+    if (hit && hit.error) return hit;
     if (hit) {
       await persistIdentity(email || saved.email || '', hit, saved.userId);
       return hit;
@@ -509,14 +517,15 @@ async function getSavedIdentity() {
 }
 
 // getTantoList 全件から、指定ローカル値（メールの @ より前 or 手動入力ユーザーID）＝名称4 の行を探す。
-// 返り値: { code, name } または null。
+// 返り値: { code, name }（該当あり）/ null（該当なし）/ { error: 'api' }（マスタ取得失敗）。
+// 取得失敗を「該当なし」と区別し、通信エラーで「担当者情報が存在しない」と誤表示しないようにする。
 async function lookupTantoByLocal(local) {
   local = String(local || '')
     .trim()
     .toLowerCase();
   if (!local) return null;
   const r = await callApi('getTantoList', { svalue: '' }, '本人特定', true);
-  if (!r || !Array.isArray(r.data)) return null;
+  if (!r || !Array.isArray(r.data)) return { error: 'api' };
   const hits = r.data.filter(
     (x) =>
       String(x['名称4'] || '')
@@ -544,6 +553,9 @@ function clearLoginError() {
 // 手動入力したユーザーIDも名称4 に該当しなかった時の最終エラー文言。
 const NO_TANTO_MSG =
   '担当者情報が存在しないため、ログインできません。<br>上長か、管理者にお問い合わせください。';
+// 担当者マスタの取得自体に失敗した時の文言（該当なしとは区別する）。
+const API_FAIL_MSG =
+  '担当者情報の取得に失敗しました。<br>通信状態を確認して、しばらくしてから再度お試しください。';
 // 手動入力ブロックの説明文（SSO自動照合に失敗した時に表示）。
 const MANUAL_MSG = '自動認証できませんでした。ユーザーIDを入力して認証してください。';
 
@@ -624,6 +636,10 @@ async function submitManualId() {
   }
   // デスクトップ版: 名称4 照合 → 成功なら手動ユーザーIDを含めて永続化。
   const hit = await lookupTantoByLocal(uid);
+  if (hit && hit.error) {
+    showLoginError(API_FAIL_MSG);
+    return;
+  }
   if (!hit) {
     showLoginError(NO_TANTO_MSG);
     return;
@@ -806,12 +822,22 @@ async function callApi(endpoint, body, label, silent) {
 }
 
 // ---- 日報一覧の日付ヘッダー行 --------------------------------------------
+// 行配列を日付（yyyymmdd）ごとに振り分けた Map を返す。
+function groupRowsByDate(rows) {
+  const m = new Map();
+  rows.forEach((r) => {
+    const dn = dateNum(r['日付']);
+    if (!m.has(dn)) m.set(dn, []);
+    m.get(dn).push(r);
+  });
+  return m;
+}
+
 // 日付ごとに「日付(曜) / 作業件数 / 作業合計時間ゲージ / 作業進捗（最多の割合）ゲージ」を表示する。
 // 集計は絞り込み条件に関係なくその日の全日報（allNippoRows）で行う（1日の合計時間を正しく見せるため）。
 // 絞り込みで一部だけ表示されている場合は件数を「表示/全体」で示す。
-function buildDateHeaderRow(dn, shownRows, colCount, selectable, dateGroups, onSelChange) {
-  const dayAll = allNippoRows.filter((r) => dateNum(r['日付']) === dn);
-  const dayShown = shownRows.filter((r) => dateNum(r['日付']) === dn);
+// dayAll: その日の全日報 / dayShown: その日の表示中（絞り込み後）の日報。
+function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGroups, onSelChange) {
   const total = dayAll.reduce((s, r) => s + hoursOf(r), 0);
 
   const tr = document.createElement('tr');
@@ -933,10 +959,12 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
   table.classList.add('tbl-' + endpoint); // エンドポイント別に列幅などを CSS で指定するため
   const thead = document.createElement('thead');
   const htr = document.createElement('tr');
+  let allCb = null; // 見出しの全選択チェック（行・日付単位の選択と連動させる）
   if (selectable) {
     const th = document.createElement('th');
     th.className = 'chk';
     const all = document.createElement('input');
+    allCb = all;
     all.type = 'checkbox';
     all.title = '全選択';
     all.addEventListener('change', () => {
@@ -980,12 +1008,18 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
   const groupByDate = endpoint === 'getNippoList';
   const dateGroups = []; // [{ cb, keys }]
   // 日付ヘッダーのチェック状態を、配下の行の選択状態に合わせる（全選択=ON / 一部=中間）
+  // あわせて見出しの全選択も、表示行の選択状態（全件=ON / 一部=中間）に合わせる。
   const syncGroupChecks = () => {
     dateGroups.forEach((g) => {
       const n = g.keys.filter((k) => selectedNippo.has(k)).length;
       g.cb.checked = n > 0 && n === g.keys.length;
       g.cb.indeterminate = n > 0 && n < g.keys.length;
     });
+    if (allCb) {
+      const n = data.filter((r) => selectedNippo.has(r['日報コード'])).length;
+      allCb.checked = n > 0 && n === data.length;
+      allCb.indeterminate = n > 0 && n < data.length;
+    }
   };
   // 全行のチェックボックスの見た目を selectedNippo と同期する（範囲選択後の反映用）。
   const syncChecks = () => {
@@ -994,6 +1028,9 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
     });
     syncGroupChecks();
   };
+  // 日付ごとの行を1回だけ振り分けておく（日付行ごとに全件を走査しないため）
+  const shownByDate = groupByDate ? groupRowsByDate(data) : null;
+  const allByDate = groupByDate ? groupRowsByDate(allNippoRows) : null;
   let prevDate = null;
   data.forEach((rowObj, index) => {
     if (groupByDate) {
@@ -1001,7 +1038,15 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
       if (dn !== prevDate) {
         prevDate = dn;
         tbody.appendChild(
-          buildDateHeaderRow(dn, data, cols.length, selectable, dateGroups, syncChecks)
+          buildDateHeaderRow(
+            dn,
+            allByDate.get(dn) || [],
+            shownByDate.get(dn) || [],
+            cols.length,
+            selectable,
+            dateGroups,
+            syncChecks
+          )
         );
       }
     }
@@ -1434,6 +1479,11 @@ function restoreLoginTanto() {
   applyViewOnly(false); // ログイン担当者に戻る＝全権（参照のみを解除）
   if (!loginTanto) return false;
   const changed = getVal('tanto') !== loginTanto.code;
+  if (changed) {
+    // 他担当者の一覧と選択は破棄する（再取得に失敗しても全権で他人の日報を操作できないように）
+    allNippoRows = [];
+    applyListFilter();
+  }
   setVal('tanto', loginTanto.code);
   setVal('tantoName', loginTanto.name);
   syncRegTanto();
@@ -1565,8 +1615,83 @@ function checkError() {
   return null;
 }
 
+// ---- 更新系処理の排他（二重送信防止） ------------------------------------
+// 登録・削除・一括処理の実行中は他の更新系処理を受け付けない（ダブルクリックや
+// 待ちきれずの再押下による重複登録を防ぐ）。実行中は更新系ボタンを無効化する。
+const MUTATION_BTNS = [
+  'btnRegist',
+  'btnDelete',
+  'btnBulkCopyExec',
+  'btnBulkDelete',
+  'btnBulkChangeExec',
+  'btnBulkIndivExec',
+  'btnBulkReplaceExec'
+];
+let mutationBusy = false;
+/**
+ * fn を排他実行する。実行中に呼ばれた場合は何もしない。
+ * @param {() => Promise<void>} fn
+ */
+async function runExclusive(fn) {
+  if (mutationBusy) return;
+  mutationBusy = true;
+  MUTATION_BTNS.forEach((id) => ($(id).disabled = true));
+  try {
+    await fn();
+  } finally {
+    mutationBusy = false;
+    MUTATION_BTNS.forEach((id) => ($(id).disabled = false));
+  }
+}
+
+/**
+ * 一括処理のループ実行。items を順に task(item) で API 実行し、結果を集計する。
+ * - 進捗をステータス欄に「label中… n/N」で表示する。
+ * - callApi が null を返した（ログイン切れ・実行エラー・準備中）ら、以降は送らず中断する。
+ * - 失敗した項目は keyOf(item) で識別子を集め、利用者が分かるように返す。
+ * task は callApi の結果を返し、null 以外で「対象なし」とする場合は 'skip' を返す。
+ * @template T
+ * @param {string} label
+ * @param {T[]} items
+ * @param {(item: T) => Promise<any>} task
+ * @param {(item: T) => string} keyOf
+ */
+async function runBulk(label, items, task, keyOf) {
+  const res = { ok: 0, ng: 0, skip: 0, failed: /** @type {string[]} */ ([]), aborted: 0 };
+  for (let i = 0; i < items.length; i++) {
+    setStatus(`${label}中… ${i + 1} / ${items.length}`);
+    const r = await task(items[i]);
+    if (r === 'skip') res.skip++;
+    else if (r === null || r === undefined) {
+      // 認証切れ等。残りは送らずに中断（この項目も未処理として数える）
+      res.aborted = items.length - i;
+      break;
+    } else if (isBizOk(r)) res.ok++;
+    else {
+      res.ng++;
+      res.failed.push(keyOf(items[i]));
+    }
+  }
+  return res;
+}
+
+// runBulk の結果をトーストとステータス欄に出す（失敗した日報コード・中断件数も示す）。
+function reportBulk(label, res, skipLabel) {
+  const parts = [`成功 ${res.ok} 件`];
+  if (res.ng) parts.push(`失敗 ${res.ng} 件`);
+  if (res.skip) parts.push(`${skipLabel || '対象なし'} ${res.skip} 件`);
+  if (res.aborted) parts.push(`未処理 ${res.aborted} 件（ログイン切れ等で中断）`);
+  const bad = res.ng > 0 || res.aborted > 0;
+  toast(`${label}: ${parts.join(' / ')}`, bad ? 'ng' : 'ok');
+  const detail = res.failed.length ? ` / 失敗: ${res.failed.join(', ')}` : '';
+  setStatus(bad ? `${label}: ${parts.join(' / ')}${detail}` : '');
+}
+
 // ---- 登録 / 更新 / 削除 ---------------------------------------------------
-async function doRegist() {
+function doRegist() {
+  return runExclusive(doRegistInner);
+}
+async function doRegistInner() {
   if (viewOnly) {
     toast('参照のみモードでは登録・更新できません', 'ng');
     return;
@@ -1594,7 +1719,10 @@ async function doRegist() {
   }
 }
 
-async function doDelete() {
+function doDelete() {
+  return runExclusive(doDeleteInner);
+}
+async function doDeleteInner() {
   if (viewOnly) {
     toast('参照のみモードでは削除できません', 'ng');
     return;
@@ -1613,12 +1741,16 @@ async function doDelete() {
 }
 
 // 合計作業時間を取得して表示（登録モーダルを開くと自動実行。トーストは抑制）。
+// 日付を続けて変えた時に古い要求の応答で上書きしないよう、最新の要求の応答だけ反映する。
+let totalSeq = 0;
 async function doTotal() {
+  const seq = ++totalSeq;
   $('totalVal').textContent = '-';
   const d = toApiDate(getVal('date'));
   const t = getVal('regTanto') || getVal('tanto');
   if (!d || !t) return;
   const r = await callApi('getTotal', { tanto: t, date: d }, '合計取得', true);
+  if (seq !== totalSeq) return; // 後から出した要求がある（古い応答は捨てる）
   if (r && r.ok) $('totalVal').textContent = r.data ?? '-';
 }
 
@@ -1655,7 +1787,10 @@ function openBulkCopy() {
   openModal('bulkCopyModal');
 }
 
-async function doBulkCopy() {
+function doBulkCopy() {
+  return runExclusive(doBulkCopyInner);
+}
+async function doBulkCopyInner() {
   const rows = selectedRows();
   if (!rows.length) {
     toast('対象の日報を選択してください', 'ng');
@@ -1694,34 +1829,42 @@ async function doBulkCopy() {
   )
     return;
 
-  let ok = 0,
-    ng = 0;
-  for (const r of rows) {
-    for (const d of dates) {
-      const body = {
-        nippoCd: '',
-        tanto: r['担当者コード'] || getVal('tanto'),
-        date: d,
-        ankenCd: r['案件コード'] || '',
-        torihikisakiMei: r['取引先名'] || '',
-        ankenMei: r['案件名'] || '',
-        sagyoNaiyo: r['作業内容'] || '',
-        sagyozikan: r['作業時間'] || '',
-        sagyoShinchoku: r['作業進捗'] || '順調',
-        okureHokoku: r['遅れ報告'] || '',
-        sonotaHokoku: r['その他報告事項'] || ''
-      };
-      const res = await callApi('registData', body, '一括コピー', true);
-      if (isBizOk(res)) ok++;
-      else ng++;
-    }
-  }
+  // 実行中はモーダルを閉じ、進捗はステータス欄に出す（再実行は runExclusive で防止）
   closeModal('bulkCopyModal');
-  toast(`一括コピー: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}`, ng ? 'ng' : 'ok');
-  await loadList();
+  const jobs = [];
+  rows.forEach((r) => dates.forEach((d) => jobs.push({ r, d })));
+  const res = await runBulk(
+    '一括コピー',
+    jobs,
+    ({ r, d }) =>
+      callApi(
+        'registData',
+        {
+          nippoCd: '',
+          tanto: r['担当者コード'] || getVal('tanto'),
+          date: d,
+          ankenCd: r['案件コード'] || '',
+          torihikisakiMei: r['取引先名'] || '',
+          ankenMei: r['案件名'] || '',
+          sagyoNaiyo: r['作業内容'] || '',
+          sagyozikan: r['作業時間'] || '',
+          sagyoShinchoku: r['作業進捗'] || '順調',
+          okureHokoku: r['遅れ報告'] || '',
+          sonotaHokoku: r['その他報告事項'] || ''
+        },
+        '一括コピー',
+        true
+      ),
+    ({ r, d }) => `${r['日報コード']}→${d}`
+  );
+  if (!res.aborted) await loadList(); // 中断（ログイン切れ等）時は取り直さない
+  reportBulk('一括コピー', res);
 }
 
-async function doBulkDelete() {
+function doBulkDelete() {
+  return runExclusive(doBulkDeleteInner);
+}
+async function doBulkDeleteInner() {
   if (viewOnly) {
     toast('参照のみモードでは一括削除できません', 'ng');
     return;
@@ -1733,15 +1876,14 @@ async function doBulkDelete() {
   }
   if (!(await uiConfirm(`選択した ${rows.length} 件 を削除します。元に戻せませんのでご注意を`)))
     return;
-  let ok = 0,
-    ng = 0;
-  for (const r of rows) {
-    const res = await callApi('deleteData', { nippoCd: r['日報コード'] }, '一括削除', true);
-    if (isBizOk(res)) ok++;
-    else ng++;
-  }
-  toast(`一括削除: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}`, ng ? 'ng' : 'ok');
-  await loadList();
+  const res = await runBulk(
+    '一括削除',
+    rows,
+    (r) => callApi('deleteData', { nippoCd: r['日報コード'] }, '一括削除', true),
+    (r) => String(r['日報コード'])
+  );
+  if (!res.aborted) await loadList(); // 中断（ログイン切れ等）時は取り直さない
+  reportBulk('一括削除', res);
 }
 
 // ---- 一括変更（変更 / 置換） ---------------------------------------------
@@ -2059,7 +2201,10 @@ function bulkChangeError(after, isTarget, rows) {
 
 // 変更ページの実行: 編集した項目のみを選択日報へ適用する。
 // 各日報について、変更後の値が変更前(その日報のDB値)と異なる場合のみ登録する。
-async function doBulkChange() {
+function doBulkChange() {
+  return runExclusive(doBulkChangeInner);
+}
+async function doBulkChangeInner() {
   if (viewOnly) {
     toast('参照のみモードでは変更できません', 'ng');
     return;
@@ -2094,9 +2239,9 @@ async function doBulkChange() {
   }
   if (!(await uiConfirm(`選択した ${rows.length} 件に変更を適用します。よろしいですか？`))) return;
 
-  let ok = 0,
-    ng = 0,
-    skip = 0;
+  // 変更後の値を各日報に適用し、変更前と異なる日報だけを送信対象にする
+  const jobs = [];
+  let unchanged = 0;
   for (const r of rows) {
     const body = rowToBody(r);
     let changed = false;
@@ -2116,24 +2261,26 @@ async function doBulkChange() {
         body[k] = after[k];
       }
     });
-    if (!changed) {
-      skip++;
-      continue;
-    }
-    const res = await callApi('registData', body, '一括変更', true);
-    if (isBizOk(res)) ok++;
-    else ng++;
+    if (changed) jobs.push(body);
+    else unchanged++;
   }
   closeModal('bulkEditModal');
-  toast(
-    `一括変更: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}${skip ? ` / 変更なし ${skip} 件` : ''}`,
-    ng ? 'ng' : 'ok'
+  const res = await runBulk(
+    '一括変更',
+    jobs,
+    (body) => callApi('registData', body, '一括変更', true),
+    (body) => String(body.nippoCd)
   );
-  await loadList();
+  res.skip = unchanged;
+  if (!res.aborted) await loadList();
+  reportBulk('一括変更', res, '変更なし');
 }
 
 // 置換ページの実行: 各日報のその他報告／遅れ報告から、置換前に一致する文字列を置換後へ置き換える。
-async function doBulkReplace() {
+function doBulkReplace() {
+  return runExclusive(doBulkReplaceInner);
+}
+async function doBulkReplaceInner() {
   if (viewOnly) {
     toast('参照のみモードでは置換できません', 'ng');
     return;
@@ -2163,12 +2310,11 @@ async function doBulkReplace() {
     toast('その他報告の置換前を入力してください', 'ng');
     return;
   }
-  if (!(await uiConfirm(`選択した ${rows.length} 件のテキストを置換します。よろしいですか？`)))
-    return;
-
-  let ok = 0,
-    ng = 0,
-    skip = 0;
+  // 置換後の内容を先に作り、日報登録（checkError）と同じ観点で検証する
+  // （その他報告の必須、作業進捗が順調以外なら遅れ報告必須）。違反があれば実行しない。
+  const jobs = [];
+  let unchanged = 0;
+  const invalid = [];
   for (const r of rows) {
     const body = rowToBody(r);
     let changed = false;
@@ -2187,19 +2333,39 @@ async function doBulkReplace() {
       }
     }
     if (!changed) {
-      skip++;
+      unchanged++;
       continue;
     }
-    const res = await callApi('registData', body, '一括置換', true);
-    if (isBizOk(res)) ok++;
-    else ng++;
+    if (String(body.sonotaHokoku).trim() === '') invalid.push(`${body.nippoCd}（その他報告が空）`);
+    else if (body.sagyoShinchoku !== '順調' && String(body.okureHokoku).trim() === '')
+      invalid.push(`${body.nippoCd}（作業進捗が順調以外で遅れ報告が空）`);
+    else jobs.push(body);
   }
+  if (invalid.length) {
+    toast(`置換後の内容が入力ルールに違反するため実行できません: ${invalid.join(', ')}`, 'ng');
+    return;
+  }
+  if (!jobs.length) {
+    toast('置換前に一致する日報がありません', 'ng');
+    return;
+  }
+  if (
+    !(await uiConfirm(
+      `選択した ${rows.length} 件のうち ${jobs.length} 件のテキストを置換します。よろしいですか？`
+    ))
+  )
+    return;
+
   closeModal('bulkEditModal');
-  toast(
-    `一括置換: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}${skip ? ` / 対象なし ${skip} 件` : ''}`,
-    ng ? 'ng' : 'ok'
+  const res = await runBulk(
+    '一括置換',
+    jobs,
+    (body) => callApi('registData', body, '一括置換', true),
+    (body) => String(body.nippoCd)
   );
-  await loadList();
+  res.skip = unchanged;
+  if (!res.aborted) await loadList();
+  reportBulk('一括置換', res);
 }
 
 // ---- 個別変更（選択日報を1画面のリストで個別編集） -----------------------
@@ -2371,8 +2537,9 @@ function buildIndivBody(e) {
 }
 
 // 個別変更の1行が元の日報から変わっているか（更新対象の判定）。
+// 一部失敗でモーダルを開いたままにした場合、送信済みの行は送信した内容（sentBody）と比較する。
 function isIndivChanged(e, body) {
-  const o = rowToBody(e.orig);
+  const o = e.sentBody || rowToBody(e.orig);
   return [
     'date',
     'ankenCd',
@@ -2403,7 +2570,10 @@ function indivRowError(e) {
 }
 
 // 個別変更の実行: 変更した日報のみを更新する。全行を日報登録と同じ観点で検証してから送信。
-async function doBulkIndiv() {
+function doBulkIndiv() {
+  return runExclusive(doBulkIndivInner);
+}
+async function doBulkIndivInner() {
   if (viewOnly) {
     toast('参照のみモードでは変更できません', 'ng');
     return;
@@ -2428,16 +2598,20 @@ async function doBulkIndiv() {
   }
   if (!(await uiConfirm(`変更した ${jobs.length} 件を更新します。よろしいですか？`))) return;
 
-  let ok = 0,
-    ng = 0;
-  for (const j of jobs) {
-    const res = await callApi('registData', j.body, '個別変更', true);
-    if (isBizOk(res)) ok++;
-    else ng++;
-  }
-  closeModal('bulkEditModal');
-  toast(`個別変更: 成功 ${ok} 件${ng ? ` / 失敗 ${ng} 件` : ''}`, ng ? 'ng' : 'ok');
-  await loadList();
+  const res = await runBulk(
+    '個別変更',
+    jobs,
+    async (j) => {
+      const r = await callApi('registData', j.body, '個別変更', true);
+      if (isBizOk(r)) j.e.sentBody = j.body; // 成功した行は以後「変更なし」扱い
+      return r;
+    },
+    (j) => String(j.e.nippoCd)
+  );
+  // 全件成功時のみ閉じる。失敗・中断がある場合は編集内容を残し、失敗行だけ再実行できるようにする
+  if (!res.ng && !res.aborted) closeModal('bulkEditModal');
+  if (!res.aborted) await loadList();
+  reportBulk('個別変更', res);
 }
 
 // ---- ⑤ 案件マスタ検索モーダル --------------------------------------------
@@ -2519,6 +2693,10 @@ function pickTanto(row) {
 // ---- 担当変更（担当者マスタ一覧 → 参照許可の確認） ------------------------
 // 日報一覧の担当者を変更し、権限モード（view=参照のみ）を反映して一覧を取り直す。
 function applyTantoChange(row, view) {
+  // 前の担当者の一覧と選択を先に破棄する。一覧の取得に失敗した場合に、前の担当者の行が
+  // 新しい権限（全権）のまま残り、一括削除・変更できてしまうのを防ぐ。
+  allNippoRows = [];
+  applyListFilter(); // 選択（selectedNippo）もクリアされる
   setVal('tanto', row['key']);
   setVal('tantoName', row['名称1']);
   applyViewOnly(view);
@@ -2821,8 +2999,8 @@ function wire() {
   $('date').addEventListener('keydown', (e) => {
     if (e.key !== 'Tab') e.preventDefault();
   });
-  // カレンダーで日付が変わったら合計を取り直す（input/change 両方で確実に拾う）
-  $('date').addEventListener('input', () => doTotal());
+  // カレンダーで日付が変わったら合計を取り直す（キー入力は禁止のため change だけで拾える。
+  // input と二重に登録すると1回の変更で2回通信してしまう）
   $('date').addEventListener('change', () => doTotal());
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
 
