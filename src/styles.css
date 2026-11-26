@@ -774,9 +774,13 @@ td.gchk input {
   font-weight: 700;
   font-size: 12.5px;
   min-width: 118px;
-  /* 横スクロール中も日付が見えるよう、固定した選択列の右に留める */
+  /* 横スクロール中も日付が見えるよう、固定した選択列のすぐ右に留める。
+     セル左余白(8px)の分も背景で覆い（padding で広げ、margin で元の位置へ戻す）、
+     下を流れるゲージが選択列との隙間から透けて見えないようにする。 */
   position: sticky;
-  left: 46px; /* 選択列の実幅(38px) + セル左余白(8px) */
+  left: 38px; /* 選択列の実幅 */
+  padding-left: 8px;
+  margin-left: -8px;
   z-index: 1;
   background: var(--date-row-bg);
 }
@@ -872,9 +876,6 @@ th.chk input,
 td.chk input {
   cursor: pointer;
 }
-/* 日報一覧の固定幅列（選択列は .chk＝34px。以下 案件コード/取引先名/案件名/作業時間/作業内容/作業進捗）。
-   width/min/max を揃えて内容に依らず一定幅にする。残り列（その他報告事項）が可変幅で残りを埋める。
-   日付は列ではなく日付ヘッダー行（tr.date-row）で表示する。 */
 /* 横スクロール時に選択列（行・日付行のチェック）と案件コード列を固定する。
    固定セルは行の背景色を引き継ぎ（background: inherit）、下を流れる列の文字を隠す。 */
 .tbl-getNippoList .chk,
@@ -900,6 +901,9 @@ td.chk input {
 .tbl-getNippoList th[data-col='案件コード'] {
   left: 38px;
 }
+/* 日報一覧の固定幅列（選択列は .chk＝width 34px／実幅 38px。以下 案件コード/取引先名/案件名/作業時間/作業内容/作業進捗）。
+   width/min/max を揃えて内容に依らず一定幅にする。残り列（その他報告事項）が可変幅で残りを埋める。
+   日付は列ではなく日付ヘッダー行（tr.date-row）で表示する。 */
 .tbl-getNippoList [data-col='案件コード'] {
   width: 85px;
   min-width: 85px;
