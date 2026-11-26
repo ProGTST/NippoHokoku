@@ -896,6 +896,14 @@ function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGrou
     td.appendChild(cb);
     tr.appendChild(td);
     dateGroups.push({ cb, keys });
+    // 日付ヘッダー行のどこをクリックしても、チェックボックスと同じく日付単位で選択／解除する
+    // （一部選択中はクリックで全選択）。参照のみモードではチェック列ごと非表示のため反応しない。
+    tr.addEventListener('click', (e) => {
+      if (e.target === cb || viewOnly) return;
+      const sel = window.getSelection && window.getSelection();
+      if (sel && !sel.isCollapsed && String(sel).length) return; // 文字の範囲選択中は無視
+      cb.click();
+    });
   }
   const td = document.createElement('td');
   td.colSpan = colCount;

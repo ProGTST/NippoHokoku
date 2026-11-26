@@ -737,8 +737,12 @@ tbody tr.nonwork:hover {
 }
 
 /* 日報一覧の日付ヘッダー行（日付ごとの集計：件数・合計時間・作業進捗） */
+/* 行クリックで日付単位の選択ができるため指カーソル（参照のみモードでは選択できないので通常カーソル） */
 tbody tr.date-row {
   background: var(--date-row-bg);
+  cursor: pointer;
+}
+body.view-only tbody tr.date-row {
   cursor: default;
 }
 tbody tr.date-row:hover {
