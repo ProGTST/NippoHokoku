@@ -683,6 +683,115 @@ tbody tr.delay-warn:hover {
 tbody tr.delay-late:hover {
   background: #f4b8b8;
 }
+/* 案件名に「非稼働」を含む行（休暇等）：薄いグレー */
+tbody tr.nonwork {
+  background: #eceef1;
+  color: #5b6270;
+}
+tbody tr.nonwork:hover {
+  background: #e1e4e8;
+}
+
+/* 日報一覧の日付ヘッダー行（日付ごとの集計：件数・合計時間・作業進捗） */
+tbody tr.date-row {
+  background: #e3e9f2;
+  cursor: default;
+}
+tbody tr.date-row:hover {
+  background: #e3e9f2;
+}
+tbody tr.date-row td {
+  padding: 4px 8px;
+  border-top: 1px solid #c3ccd8;
+}
+td.gchk {
+  width: 34px;
+  text-align: center;
+  cursor: default;
+}
+td.gchk input {
+  cursor: pointer;
+}
+.date-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.dh-date {
+  font-weight: 700;
+  font-size: 12.5px;
+  min-width: 118px;
+}
+.dh-date.dow-sat {
+  color: #1d4ed8;
+}
+.dh-date.dow-hol {
+  color: #dc2626;
+}
+.dh-count {
+  color: #374151;
+  min-width: 84px;
+}
+.dh-gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dh-label {
+  min-width: 92px;
+  font-weight: 600;
+}
+.gauge {
+  display: inline-block;
+  width: 120px;
+  height: 8px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid #c3ccd8;
+  overflow: hidden;
+}
+.gauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+.g-under .gauge-fill {
+  background: #facc15; /* 8時間未満：黄 */
+}
+.g-under .dh-label {
+  color: #a16207;
+}
+.g-just .gauge-fill {
+  background: var(--ok); /* 8時間ちょうど：緑 */
+}
+.g-just .dh-label {
+  color: #15803d;
+}
+.g-over .gauge-fill {
+  background: var(--danger); /* 8時間超：赤 */
+}
+.g-over .dh-label {
+  color: var(--danger);
+}
+.g-good .gauge-fill {
+  background: var(--ok);
+}
+.g-good .dh-label {
+  color: #15803d;
+}
+.g-warn .gauge-fill {
+  background: var(--warn);
+}
+.g-warn .dh-label {
+  color: #b45309;
+}
+.g-late .gauge-fill {
+  background: var(--danger);
+}
+.g-late .dh-label {
+  color: var(--danger);
+}
+
 td.num {
   text-align: right;
 }
@@ -699,11 +808,6 @@ td.chk input {
 /* 日報一覧の固定幅列（選択列は .chk＝34px。以下 日付/案件コード/取引先名/案件名/作業時間/作業進捗）。
    width/min/max を揃えて内容に依らず一定幅にする。残り列（作業内容・
    その他報告事項）が可変幅で残りを埋める。 */
-.tbl-getNippoList [data-col='日付'] {
-  width: 75px;
-  min-width: 75px;
-  max-width: 75px;
-}
 .tbl-getNippoList [data-col='案件コード'] {
   width: 85px;
   min-width: 85px;
@@ -815,6 +919,42 @@ td.chk input {
 }
 .modal-wide {
   width: 1200px;
+}
+/* 入力チェック結果 */
+.modal-check {
+  width: 860px;
+}
+.tbl-check tbody tr {
+  cursor: default;
+}
+.tbl-check td.c-date {
+  width: 120px;
+  font-weight: 600;
+}
+.tbl-check td.c-date.dow-sat {
+  color: #1d4ed8;
+}
+.tbl-check td.c-date.dow-hol {
+  color: #dc2626;
+}
+.tbl-check td.c-kind {
+  width: 84px;
+  text-align: center;
+  font-weight: 700;
+}
+.tbl-check td.kind-W {
+  color: #b45309;
+  background: #fef3c7;
+}
+.tbl-check td.c-item {
+  width: 110px;
+}
+.tbl-check td.c-msg {
+  white-space: normal;
+}
+.check-ok {
+  color: var(--ok);
+  font-weight: 600;
 }
 /* 修正モード→コピーモード切替時、モーダルを少し浮き上げて元の位置に戻して見せる */
 .modal.copy-hop {

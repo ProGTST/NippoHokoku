@@ -85,7 +85,14 @@
             ⬆ 更新
           </button>
           <span id="verLabelLogin" class="ver-label" title="現在のバージョン"></span>
-          <button id="btnInfoLogin" class="info-btn" title="案件コード設定基準" aria-label="案件コード設定基準">i</button>
+          <button
+            id="btnInfoLogin"
+            class="info-btn"
+            title="案件コード設定基準"
+            aria-label="案件コード設定基準"
+          >
+            i
+          </button>
         </span>
       </div>
     </section>
@@ -117,6 +124,7 @@
         </span>
         <span class="spacer"></span>
         <button id="btnGetList">↻ 一覧更新</button>
+        <button id="btnInputCheck" title="表示中の月の入力内容をチェック">✔ 入力チェック</button>
         <button id="btnNew" class="primary">新規登録</button>
         <button id="btnBulkCopy" class="ok">一括コピー</button>
         <button id="btnBulkEdit" class="warn">一括変更</button>
@@ -150,7 +158,14 @@
           ⬆ 更新
         </button>
         <span id="verLabel" class="ver-label" title="現在のバージョン"></span>
-        <button id="btnInfo" class="info-btn" title="案件コード設定基準" aria-label="案件コード設定基準">i</button>
+        <button
+          id="btnInfo"
+          class="info-btn"
+          title="案件コード設定基準"
+          aria-label="案件コード設定基準"
+        >
+          i
+        </button>
       </div>
     </main>
 
@@ -417,6 +432,24 @@
       </div>
     </div>
 
+    <!-- 入力チェック結果ポップアップ -->
+    <div id="checkModal" class="modal-overlay hidden" data-close="checkModal">
+      <div class="modal modal-check">
+        <div class="modal-head">
+          <span class="modal-title">入力チェック</span>
+          <span id="checkSummary" class="modal-sub"></span>
+          <button id="btnCloseCheck" class="ghost" title="閉じる">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="checkTable" class="table-wrap modal-table"></div>
+        </div>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button id="btnCheckOk" class="primary">OK</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 案件コード設定基準（インフォメーション） -->
     <div id="infoModal" class="modal-overlay hidden" data-close="infoModal">
       <div class="modal modal-wide">
@@ -464,7 +497,9 @@
               <div class="info-item-title">■各種案件</div>
               <dl>
                 <dt>案件コード</dt>
-                <dd>同じマイルストーンで設定されている「★」が付いているBacklogチケット内に記載している案件コード</dd>
+                <dd>
+                  同じマイルストーンで設定されている「★」が付いているBacklogチケット内に記載している案件コード
+                </dd>
                 <dt>対象作業</dt>
                 <dd>
                   案件に関わる作業全般、見積もりを除く各レビュー（設計・ソースコード・テスト・出荷）<br />
@@ -477,7 +512,9 @@
               <div class="info-item-title">■保守(準委任契約分等)</div>
               <dl>
                 <dt>案件コード</dt>
-                <dd>同じマイルストーンで設定されている「★」が付いているBacklogチケット内に記載している案件コード</dd>
+                <dd>
+                  同じマイルストーンで設定されている「★」が付いているBacklogチケット内に記載している案件コード
+                </dd>
                 <dt>対象作業</dt>
                 <dd>保守に関わる作業全般</dd>
               </dl>

@@ -62,8 +62,8 @@ const SNAPSHOT_FIELDS = REG_FIELDS.concat(['regTanto', 'regTantoName']);
 // エンドポイント別の表示列ホワイトリスト（現行仕様.md §7.1 / §7.4）。
 // 行データは全フィールド保持し、表示のみ絞る。未定義/非該当は全列にフォールバック。
 const DISPLAY_COLS = {
+  // 日付は列として出さず、日付ごとのヘッダー行（renderTableInto）で表示する
   getNippoList: [
-    '日付',
     '案件コード',
     '取引先名',
     '案件名',
@@ -165,6 +165,110 @@ function toApiDate(s) {
 function dateNum(s) {
   const m = String(s || '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
   return m ? Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]) : 0;
+}
+
+// ---- 日付・祝日ユーティリティ（日付ヘッダー行／入力チェック用） ----------
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const STD_HOURS = 8; // 1日の標準作業時間
+
+// yyyymmdd 数値 → Date（ローカル時刻 0:00）。
+function numToDate(n) {
+  return new Date(Math.floor(n / 10000), (Math.floor(n / 100) % 100) - 1, n % 100);
+}
+// Date → yyyymmdd 数値。
+function dateToNum(d) {
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+// yyyymmdd 数値 → 「yyyy/mm/dd(曜)」表記。
+function fmtDateWithDow(n) {
+  const d = numToDate(n);
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}/${mo}/${da}(${WEEKDAYS[d.getDay()]})`;
+}
+
+// 指定年の日本の祝日（振替休日・国民の休日を含む）を yyyymmdd の Set で返す（年ごとにキャッシュ）。
+// 春分・秋分の日は 1980〜2099 年の近似式で算出する。
+const holidayCache = {};
+function jpHolidays(y) {
+  if (holidayCache[y]) return holidayCache[y];
+  const base = new Set();
+  const add = (m, d) => base.add(y * 10000 + m * 100 + d);
+  // 第 n 月曜日
+  const nthMonday = (m, n) => {
+    const first = new Date(y, m - 1, 1).getDay();
+    return 1 + ((8 - first) % 7) + (n - 1) * 7;
+  };
+  const k = Math.floor((y - 1980) / 4);
+  add(1, 1); // 元日
+  add(1, nthMonday(1, 2)); // 成人の日
+  add(2, 11); // 建国記念の日
+  if (y >= 2020) add(2, 23); // 天皇誕生日
+  add(3, Math.floor(20.8431 + 0.242194 * (y - 1980) - k)); // 春分の日
+  add(4, 29); // 昭和の日
+  add(5, 3); // 憲法記念日
+  add(5, 4); // みどりの日
+  add(5, 5); // こどもの日
+  // 海の日・スポーツの日・山の日（東京五輪の特例年あり）
+  if (y === 2020) {
+    add(7, 23);
+    add(7, 24);
+    add(8, 10);
+  } else if (y === 2021) {
+    add(7, 22);
+    add(7, 23);
+    add(8, 8);
+  } else {
+    add(7, nthMonday(7, 3));
+    add(10, nthMonday(10, 2));
+    add(8, 11);
+  }
+  add(9, nthMonday(9, 3)); // 敬老の日
+  add(9, Math.floor(23.2488 + 0.242194 * (y - 1980) - k)); // 秋分の日
+  add(11, 3); // 文化の日
+  add(11, 23); // 勤労感謝の日
+
+  const result = new Set(base);
+  // 振替休日: 日曜の祝日の後の最初の平日（祝日でない日）
+  base.forEach((n) => {
+    const d = numToDate(n);
+    if (d.getDay() !== 0) return;
+    do d.setDate(d.getDate() + 1);
+    while (base.has(dateToNum(d)));
+    result.add(dateToNum(d));
+  });
+  // 国民の休日: 前後を祝日に挟まれた平日
+  base.forEach((n) => {
+    const mid = numToDate(n);
+    mid.setDate(mid.getDate() + 1);
+    const next = new Date(mid);
+    next.setDate(next.getDate() + 1);
+    if (!base.has(dateToNum(mid)) && base.has(dateToNum(next)) && mid.getDay() !== 0)
+      result.add(dateToNum(mid));
+  });
+  holidayCache[y] = result;
+  return result;
+}
+// 土日祝なら true。
+function isHoliday(n) {
+  const d = numToDate(n);
+  return d.getDay() === 0 || d.getDay() === 6 || jpHolidays(d.getFullYear()).has(n);
+}
+// 日付表示の色分け用クラス（土=青、日祝=赤）。
+function dowClass(n) {
+  const d = numToDate(n);
+  if (d.getDay() === 0 || jpHolidays(d.getFullYear()).has(n)) return 'dow-hol';
+  if (d.getDay() === 6) return 'dow-sat';
+  return '';
+}
+// 作業時間の数値化（不正値は 0）。
+function hoursOf(r) {
+  const v = Number(r['作業時間']);
+  return Number.isFinite(v) ? v : 0;
+}
+// 小数誤差を丸めて表示用文字列にする（例: 7.5 / 8）。
+function fmtHours(h) {
+  return String(Math.round(h * 100) / 100);
 }
 
 // 日報一覧を「日付 降順 → 作業時間 降順 → 案件コード 降順」で並べ替える。
@@ -701,6 +805,112 @@ async function callApi(endpoint, body, label, silent) {
   return result;
 }
 
+// ---- 日報一覧の日付ヘッダー行 --------------------------------------------
+// 日付ごとに「日付(曜) / 作業件数 / 作業合計時間ゲージ / 作業進捗（最多の割合）ゲージ」を表示する。
+// 集計は絞り込み条件に関係なくその日の全日報（allNippoRows）で行う（1日の合計時間を正しく見せるため）。
+// 絞り込みで一部だけ表示されている場合は件数を「表示/全体」で示す。
+function buildDateHeaderRow(dn, shownRows, colCount, selectable, dateGroups, onSelChange) {
+  const dayAll = allNippoRows.filter((r) => dateNum(r['日付']) === dn);
+  const dayShown = shownRows.filter((r) => dateNum(r['日付']) === dn);
+  const total = dayAll.reduce((s, r) => s + hoursOf(r), 0);
+
+  const tr = document.createElement('tr');
+  tr.className = 'date-row';
+  if (selectable) {
+    // 日付単位の選択（配下の表示行をまとめて選択／解除）
+    const td = document.createElement('td');
+    td.className = 'gchk';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.title = 'この日付の日報を全選択';
+    const keys = dayShown.map((r) => r['日報コード']);
+    cb.checked = keys.length > 0 && keys.every((k) => selectedNippo.has(k));
+    cb.addEventListener('change', () => {
+      keys.forEach((k) => (cb.checked ? selectedNippo.add(k) : selectedNippo.delete(k)));
+      onSelChange();
+    });
+    td.appendChild(cb);
+    tr.appendChild(td);
+    dateGroups.push({ cb, keys });
+  }
+  const td = document.createElement('td');
+  td.colSpan = colCount;
+  const box = document.createElement('div');
+  box.className = 'date-head';
+
+  const dateEl = document.createElement('span');
+  dateEl.className = 'dh-date ' + dowClass(dn);
+  dateEl.textContent = fmtDateWithDow(dn);
+  box.appendChild(dateEl);
+
+  const cnt = document.createElement('span');
+  cnt.className = 'dh-count';
+  cnt.textContent =
+    dayShown.length === dayAll.length
+      ? `作業件数 ${dayAll.length}件`
+      : `作業件数 ${dayShown.length}/${dayAll.length}件`;
+  box.appendChild(cnt);
+
+  // 作業合計時間ゲージ（8h 未満=黄 / 8h ちょうど=緑 / 8h 超=赤。8h で満杯）
+  const timeCls = total < STD_HOURS ? 'g-under' : total > STD_HOURS ? 'g-over' : 'g-just';
+  box.appendChild(
+    buildGauge(
+      `作業時間 ${fmtHours(total)}h`,
+      Math.min(total / STD_HOURS, 1),
+      timeCls,
+      `合計 ${fmtHours(total)}h / 標準 ${STD_HOURS}h`
+    )
+  );
+
+  // 作業進捗：件数ベースの割合で最も多いものだけ表示（同率は遅れ側を優先）
+  const counts = {};
+  dayAll.forEach((r) => {
+    const s = String(r['作業進捗'] || '');
+    if (s) counts[s] = (counts[s] || 0) + 1;
+  });
+  const order = ['遅れ', 'やや遅れ', '順調'];
+  let top = '';
+  Object.keys(counts).forEach((s) => {
+    if (
+      !top ||
+      counts[s] > counts[top] ||
+      (counts[s] === counts[top] && order.indexOf(s) >= 0 && order.indexOf(s) < order.indexOf(top))
+    )
+      top = s;
+  });
+  if (top) {
+    const ratio = counts[top] / dayAll.length;
+    const shCls = top === '順調' ? 'g-good' : top === 'やや遅れ' ? 'g-warn' : 'g-late';
+    const detail = Object.keys(counts)
+      .map((s) => `${s} ${Math.round((counts[s] / dayAll.length) * 100)}%`)
+      .join(' / ');
+    box.appendChild(buildGauge(`${top} ${Math.round(ratio * 100)}%`, ratio, shCls, detail));
+  }
+
+  td.appendChild(box);
+  tr.appendChild(td);
+  return tr;
+}
+
+// ラベル + 横棒ゲージ（ratio: 0〜1）を作る。
+function buildGauge(label, ratio, cls, title) {
+  const wrap = document.createElement('span');
+  wrap.className = 'dh-gauge ' + cls;
+  if (title) wrap.title = title;
+  const lb = document.createElement('span');
+  lb.className = 'dh-label';
+  lb.textContent = label;
+  const bar = document.createElement('span');
+  bar.className = 'gauge';
+  const fill = document.createElement('span');
+  fill.className = 'gauge-fill';
+  fill.style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
+  bar.appendChild(fill);
+  wrap.appendChild(lb);
+  wrap.appendChild(bar);
+  return wrap;
+}
+
 // ---- テーブル描画（任意コンテナ + 行クリックコールバック） ----------------
 // selectable=true で先頭にチェックボックス列（選択列）を追加（日報一覧用）。
 function renderTableInto(container, endpoint, data, onRowClick, selectable) {
@@ -737,6 +947,7 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
       });
       container.querySelectorAll('tbody input[type=checkbox]').forEach((cb) => {
         cb.checked = all.checked;
+        cb.indeterminate = false;
       });
     });
     th.appendChild(all);
@@ -765,19 +976,44 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
   }
   // 範囲選択（Shift+クリック）の起点。チェック／Ctrl+クリックした行を起点にする。
   let anchorIndex = null;
+  // 日付ヘッダー行（日報一覧のみ）。日付ごとの選択チェックを持つ。
+  const groupByDate = endpoint === 'getNippoList';
+  const dateGroups = []; // [{ cb, keys }]
+  // 日付ヘッダーのチェック状態を、配下の行の選択状態に合わせる（全選択=ON / 一部=中間）
+  const syncGroupChecks = () => {
+    dateGroups.forEach((g) => {
+      const n = g.keys.filter((k) => selectedNippo.has(k)).length;
+      g.cb.checked = n > 0 && n === g.keys.length;
+      g.cb.indeterminate = n > 0 && n < g.keys.length;
+    });
+  };
   // 全行のチェックボックスの見た目を selectedNippo と同期する（範囲選択後の反映用）。
   const syncChecks = () => {
     container.querySelectorAll('tbody td.chk input[type=checkbox]').forEach((c, i) => {
       c.checked = selectedNippo.has(data[i]['日報コード']);
     });
+    syncGroupChecks();
   };
+  let prevDate = null;
   data.forEach((rowObj, index) => {
+    if (groupByDate) {
+      const dn = dateNum(rowObj['日付']);
+      if (dn !== prevDate) {
+        prevDate = dn;
+        tbody.appendChild(
+          buildDateHeaderRow(dn, data, cols.length, selectable, dateGroups, syncChecks)
+        );
+      }
+    }
     const tr = document.createElement('tr');
     const key = rowObj['日報コード'];
     // 作業進捗の遅れ具合に応じて行全体を赤系で強調（濃度は 遅れ > やや遅れ）
     const shinchoku = String(rowObj['作業進捗'] || '');
     if (shinchoku === 'やや遅れ') tr.classList.add('delay-warn');
     else if (shinchoku === '遅れ') tr.classList.add('delay-late');
+    // 案件名に「非稼働」を含む行（休暇等）は薄いグレー背景
+    if (groupByDate && String(rowObj['案件名'] || '').includes('非稼働'))
+      tr.classList.add('nonwork');
     let cb = null;
     if (selectable) {
       const td = document.createElement('td');
@@ -789,6 +1025,7 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
         if (cb.checked) selectedNippo.add(key);
         else selectedNippo.delete(key);
         anchorIndex = index; // チェックした行を範囲選択の起点にする
+        syncGroupChecks();
       });
       // チェック操作で行クリック（編集）を発火させない
       td.addEventListener('click', (e) => e.stopPropagation());
@@ -844,6 +1081,7 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
         else selectedNippo.delete(key);
         if (cb) cb.checked = now;
         anchorIndex = index; // Ctrl+クリックした行を範囲選択の起点にする
+        syncGroupChecks();
         return;
       }
       if (onRowClick) onRowClick(rowObj);
@@ -958,6 +1196,93 @@ async function loadList() {
   const r = await callApi('getNippoList', { tanto: getVal('tanto') }, '日報一覧取得');
   if (r && Array.isArray(r.data)) showNippoList(r.data);
 }
+// ---- 入力チェック ---------------------------------------------------------
+// 対象期間: 月表示モード＝表示中の月 / 全件表示モード＝当月。いずれも今日までの日付が対象。
+// 絞り込み条件（案件名等）は無視し、取得済みの全日報（allNippoRows）で判定する。
+// 返り値: [{ date(yyyymmdd), kind, item, msg }]（日付昇順）
+function runInputCheck() {
+  const today = new Date();
+  const y = listFilterMode === 'all' ? today.getFullYear() : filterYear;
+  const m = listFilterMode === 'all' ? today.getMonth() + 1 : filterMonth;
+  const todayNum = dateToNum(today);
+  const hoursByDate = {};
+  allNippoRows.forEach((r) => {
+    const n = dateNum(r['日付']);
+    if (!n) return;
+    hoursByDate[n] = (hoursByDate[n] || 0) + hoursOf(r);
+  });
+  const results = [];
+  const days = new Date(y, m, 0).getDate();
+  for (let d = 1; d <= days; d++) {
+    const n = y * 10000 + m * 100 + d;
+    if (n > todayNum) break; // 未来日はチェックしない
+    const label = fmtDateWithDow(n);
+    const has = Object.prototype.hasOwnProperty.call(hoursByDate, n);
+    if (!has) {
+      // 土日祝以外の平日で入力なし
+      if (!isHoliday(n))
+        results.push({
+          date: n,
+          kind: 'W',
+          item: '非稼働日',
+          msg: `${label} 営業日ですが、入力がありません。よろしいでしょうか？`
+        });
+    } else if (!isHoliday(n) && hoursByDate[n] < STD_HOURS) {
+      // 入力はあるが 1日の作業時間が 8時間未満（休日出勤分は対象外）
+      results.push({
+        date: n,
+        kind: 'W',
+        item: '稼働時間未満',
+        msg: `${label} 作業時間が8時間を満たしていません。よろしいでしょうか？`
+      });
+    }
+  }
+  return { y, m, results };
+}
+
+// 入力チェックを実行し、結果をポップアップで一覧表示する。
+function showInputCheck() {
+  const { y, m, results } = runInputCheck();
+  $('checkSummary').textContent = `対象: ${y}年${m}月 / ${results.length}件`;
+  const wrap = $('checkTable');
+  wrap.innerHTML = '';
+  if (!results.length) {
+    wrap.innerHTML = '<div class="empty-list check-ok">チェック対象の問題はありません。</div>';
+  } else {
+    const table = document.createElement('table');
+    table.className = 'tbl-check';
+    const thead = document.createElement('thead');
+    const htr = document.createElement('tr');
+    ['対象日付', 'チェック種別', 'チェック項目', 'チェックメッセージ'].forEach((h) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    results.forEach((r) => {
+      const tr = document.createElement('tr');
+      [
+        { t: fmtDateWithDow(r.date), c: 'c-date ' + dowClass(r.date) },
+        { t: r.kind, c: 'c-kind kind-' + r.kind },
+        { t: r.item, c: 'c-item' },
+        { t: r.msg, c: 'c-msg' }
+      ].forEach((x) => {
+        const td = document.createElement('td');
+        td.className = x.c;
+        td.textContent = x.t;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+  openModal('checkModal');
+  $('btnCheckOk').focus();
+}
+
 // 選択中の日報（行データ）を返す。
 function selectedRows() {
   return currentNippoList.filter((r) => selectedNippo.has(r['日報コード']));
@@ -2394,6 +2719,9 @@ function wire() {
   $('btnReauth').addEventListener('click', () => reauth());
   $('btnTantoChange').addEventListener('click', () => openTantoModal());
   $('btnGetList').addEventListener('click', () => loadList());
+  $('btnInputCheck').addEventListener('click', () => showInputCheck());
+  $('btnCloseCheck').addEventListener('click', () => closeModal('checkModal'));
+  $('btnCheckOk').addEventListener('click', () => closeModal('checkModal'));
   $('btnToggleAll').addEventListener('click', () =>
     setListFilterMode(listFilterMode === 'all' ? 'month' : 'all')
   );
