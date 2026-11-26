@@ -9,6 +9,53 @@
   --danger: #dc2626;
   --ok: #16a34a;
   --warn: #d97706;
+  --ok-d: #15803d;
+  --navy: #12263a; /* ヘッダー・トースト */
+  --on-dark: #fff; /* 濃色背景上の文字 */
+  --text-sub: #374151;
+  --th-bg: #eef1f5;
+  --btn-hover: #f0f2f5;
+  --readonly-bg: #eef0f2;
+  --readonly-text: #444;
+  --hint-bg: #fff8ec;
+  --block-border: #c7ccd4;
+  /* バッジ */
+  --badge-new-bg: #e0edff;
+  --badge-view-bg: #ede9fe;
+  --badge-view-text: #7c3aed;
+  --badge-copy-bg: #dcfce7;
+  --orange-soft: #fff0d9; /* 修正バッジ・「複数あり」ボタン */
+  --orange-soft-hover: #ffe6bf;
+  /* 日報一覧の行 */
+  --row-hover: #eaf2ff;
+  --row-delay-warn: #fdeaea; /* やや遅れ（個別変更の変更済みセルも共用） */
+  --row-delay-warn-hover: #fbdcdc;
+  --row-delay-late: #f8caca;
+  --row-delay-late-hover: #f4b8b8;
+  --row-nonwork: #eceef1; /* 非稼働 */
+  --row-nonwork-hover: #e1e4e8;
+  --row-nonwork-text: #5b6270;
+  --date-row-bg: #e3e9f2; /* 日付ヘッダー行 */
+  --date-row-border: #c3ccd8;
+  /* ゲージ・警告 */
+  --gauge-under: #facc15; /* 8時間未満 */
+  --under-text: #a16207;
+  --warn-text: #b45309;
+  --warn-bg: #fef3c7;
+  /* 生レスポンス表示 */
+  --code-bg: #0f172a;
+  --code-text: #d1e3ff;
+  /* 案件コード設定基準 */
+  --note-border: #f0d264;
+  --note-bg: #fdf6d8;
+  --note-text: #5c4a08;
+  --info-blue-border: #a9c7f0;
+  --info-blue-bg: #eaf2fd;
+  --info-green-border: #a6d8b0;
+  --info-green-bg: #e7f6ec;
+  /* コピーモード案内 */
+  --copy-bg: #f0fdf4;
+  --copy-text: #14532d;
 }
 
 * {
@@ -38,8 +85,8 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  background: #12263a;
-  color: #fff;
+  background: var(--navy);
+  color: var(--on-dark);
 }
 .topbar-left {
   display: flex;
@@ -64,7 +111,7 @@ body.app .tanto-group {
   opacity: 0.8;
 }
 .tanto-group input {
-  color: #fff;
+  color: var(--on-dark);
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 4px;
@@ -72,15 +119,6 @@ body.app .tanto-group {
 }
 .tanto-group #tantoName {
   width: 8em;
-}
-.brand .tag {
-  font-size: 10px;
-  font-weight: 400;
-  opacity: 0.7;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 10px;
-  padding: 1px 8px;
-  margin-left: 8px;
 }
 .conn {
   display: flex;
@@ -91,7 +129,7 @@ body.app .tanto-group {
 /* 紺色ヘッダー上のボタンは白文字＋半透明背景で視認性を確保（ghost の透明を上書き） */
 .topbar button,
 .topbar button.ghost {
-  color: #fff;
+  color: var(--on-dark);
   border-color: rgba(255, 255, 255, 0.5);
   background: rgba(255, 255, 255, 0.12);
 }
@@ -125,7 +163,7 @@ body.app .tanto-group {
   padding: 6px 12px;
   font-size: 12px;
   color: var(--warn);
-  background: #fff8ec;
+  background: var(--hint-bg);
   border-bottom: 1px solid var(--border);
 }
 /* 認証画面のログインエラー（本人特定失敗など）。メッセージは innerHTML 描画 */
@@ -134,7 +172,7 @@ body.app .tanto-group {
   padding: 10px 12px;
   font-size: 13px;
   line-height: 1.5;
-  color: #fff;
+  color: var(--on-dark);
   background: var(--danger);
   border-radius: 6px;
   text-align: center;
@@ -407,15 +445,15 @@ body.app .main-view {
 /* 日報一覧 右下の更新ボタン（更新有り時のみ表示） */
 .update-btn {
   flex: none;
-  background: #16a34a;
-  color: #fff;
-  border-color: #16a34a;
+  background: var(--ok);
+  color: var(--on-dark);
+  border-color: var(--ok);
   font-weight: 600;
   white-space: nowrap;
 }
 .update-btn:hover {
-  background: #15803d;
-  border-color: #15803d;
+  background: var(--ok-d);
+  border-color: var(--ok-d);
 }
 .update-btn:disabled {
   opacity: 0.6;
@@ -467,12 +505,12 @@ textarea {
   padding: 4px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
 }
 input[readonly] {
-  background: #eef0f2;
-  color: #444;
+  background: var(--readonly-bg);
+  color: var(--readonly-text);
 }
 /* 幅を揃える共通クラス（日付 / 担当者コード / 作業内容） */
 .w-field {
@@ -499,12 +537,12 @@ button {
   padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
   cursor: pointer;
 }
 button:hover {
-  background: #f0f2f5;
+  background: var(--btn-hover);
 }
 button:active {
   transform: translateY(1px);
@@ -512,7 +550,7 @@ button:active {
 button.primary {
   background: var(--primary);
   border-color: var(--primary);
-  color: #fff;
+  color: var(--on-dark);
 }
 button.primary:hover {
   background: var(--primary-d);
@@ -520,7 +558,7 @@ button.primary:hover {
 button.danger {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--on-dark);
 }
 button.danger:hover {
   filter: brightness(0.93);
@@ -528,7 +566,7 @@ button.danger:hover {
 button.ok {
   background: var(--ok);
   border-color: var(--ok);
-  color: #fff;
+  color: var(--on-dark);
 }
 button.ok:hover {
   filter: brightness(0.93);
@@ -536,7 +574,7 @@ button.ok:hover {
 button.warn {
   background: var(--warn);
   border-color: var(--warn);
-  color: #fff;
+  color: var(--on-dark);
 }
 button.warn:hover {
   filter: brightness(0.93);
@@ -554,24 +592,25 @@ button.date-btn {
   padding: 1px 9px;
 }
 .badge.new {
-  background: #e0edff;
+  background: var(--badge-new-bg);
   color: var(--primary-d);
 }
 .badge.edit {
-  background: #fff0d9;
+  background: var(--orange-soft);
   color: var(--warn);
 }
 .badge.view {
-  background: #ede9fe;
-  color: #7c3aed;
+  background: var(--badge-view-bg);
+  color: var(--badge-view-text);
 }
 .badge.copy {
-  background: #dcfce7;
+  background: var(--badge-copy-bg);
   color: var(--ok);
 }
 
 /* 参照のみモード: 編集系の UI を隠す（選択列・新規/一括・登録フッター） */
 body.view-only .chk,
+body.view-only .gchk,
 body.view-only #btnNew,
 body.view-only #btnBulkCopy,
 body.view-only #btnBulkDelete,
@@ -659,50 +698,55 @@ thead th {
   border-top: 1px solid var(--border);
 }
 th {
-  background: #eef1f5;
+  background: var(--th-bg);
   position: sticky;
   top: 0;
   z-index: 2;
 }
-tbody tr {
+/* 行クリックで動作する表（日報一覧・案件履歴・担当者一覧）だけ指カーソルとホバー色にする */
+.tbl-getNippoList tbody tr,
+.tbl-gethistory tbody tr,
+.tbl-getTantoList tbody tr {
   cursor: pointer;
 }
-tbody tr:hover {
-  background: #eaf2ff;
+.tbl-getNippoList tbody tr:hover,
+.tbl-gethistory tbody tr:hover,
+.tbl-getTantoList tbody tr:hover {
+  background: var(--row-hover);
 }
 /* 作業進捗の遅れを行全体で強調（濃度: 遅れ > やや遅れ） */
 tbody tr.delay-warn {
-  background: #fdeaea; /* やや遅れ：薄い赤色 */
+  background: var(--row-delay-warn); /* やや遅れ：薄い赤色 */
 }
 tbody tr.delay-late {
-  background: #f8caca; /* 遅れ：やや薄い赤色 */
+  background: var(--row-delay-late); /* 遅れ：やや薄い赤色 */
 }
 tbody tr.delay-warn:hover {
-  background: #fbdcdc;
+  background: var(--row-delay-warn-hover);
 }
 tbody tr.delay-late:hover {
-  background: #f4b8b8;
+  background: var(--row-delay-late-hover);
 }
 /* 案件名に「非稼働」を含む行（休暇等）：薄いグレー */
 tbody tr.nonwork {
-  background: #eceef1;
-  color: #5b6270;
+  background: var(--row-nonwork);
+  color: var(--row-nonwork-text);
 }
 tbody tr.nonwork:hover {
-  background: #e1e4e8;
+  background: var(--row-nonwork-hover);
 }
 
 /* 日報一覧の日付ヘッダー行（日付ごとの集計：件数・合計時間・作業進捗） */
 tbody tr.date-row {
-  background: #e3e9f2;
+  background: var(--date-row-bg);
   cursor: default;
 }
 tbody tr.date-row:hover {
-  background: #e3e9f2;
+  background: var(--date-row-bg);
 }
 tbody tr.date-row td {
   padding: 4px 8px;
-  border-top: 1px solid #c3ccd8;
+  border-top: 1px solid var(--date-row-border);
 }
 td.gchk {
   width: 34px;
@@ -723,13 +767,13 @@ td.gchk input {
   min-width: 118px;
 }
 .dh-date.dow-sat {
-  color: #1d4ed8;
+  color: var(--primary-d);
 }
 .dh-date.dow-hol {
-  color: #dc2626;
+  color: var(--danger);
 }
 .dh-count {
-  color: #374151;
+  color: var(--text-sub);
   min-width: 84px;
 }
 .dh-gauge {
@@ -746,8 +790,8 @@ td.gchk input {
   width: 120px;
   height: 8px;
   border-radius: 4px;
-  background: #fff;
-  border: 1px solid #c3ccd8;
+  background: var(--panel);
+  border: 1px solid var(--date-row-border);
   overflow: hidden;
 }
 .gauge-fill {
@@ -756,16 +800,16 @@ td.gchk input {
   border-radius: 4px;
 }
 .g-under .gauge-fill {
-  background: #facc15; /* 8時間未満：黄 */
+  background: var(--gauge-under); /* 8時間未満：黄 */
 }
 .g-under .dh-label {
-  color: #a16207;
+  color: var(--under-text);
 }
 .g-just .gauge-fill {
   background: var(--ok); /* 8時間ちょうど：緑 */
 }
 .g-just .dh-label {
-  color: #15803d;
+  color: var(--ok-d);
 }
 .g-over .gauge-fill {
   background: var(--danger); /* 8時間超：赤 */
@@ -777,13 +821,13 @@ td.gchk input {
   background: var(--ok);
 }
 .g-good .dh-label {
-  color: #15803d;
+  color: var(--ok-d);
 }
 .g-warn .gauge-fill {
   background: var(--warn);
 }
 .g-warn .dh-label {
-  color: #b45309;
+  color: var(--warn-text);
 }
 .g-late .gauge-fill {
   background: var(--danger);
@@ -805,9 +849,9 @@ th.chk input,
 td.chk input {
   cursor: pointer;
 }
-/* 日報一覧の固定幅列（選択列は .chk＝34px。以下 日付/案件コード/取引先名/案件名/作業時間/作業進捗）。
-   width/min/max を揃えて内容に依らず一定幅にする。残り列（作業内容・
-   その他報告事項）が可変幅で残りを埋める。 */
+/* 日報一覧の固定幅列（選択列は .chk＝34px。以下 案件コード/取引先名/案件名/作業時間/作業内容/作業進捗）。
+   width/min/max を揃えて内容に依らず一定幅にする。残り列（その他報告事項）が可変幅で残りを埋める。
+   日付は列ではなく日付ヘッダー行（tr.date-row）で表示する。 */
 .tbl-getNippoList [data-col='案件コード'] {
   width: 85px;
   min-width: 85px;
@@ -882,8 +926,8 @@ td.chk input {
   margin: 6px 0 0;
   max-height: 160px;
   overflow: auto;
-  background: #0f172a;
-  color: #d1e3ff;
+  background: var(--code-bg);
+  color: var(--code-text);
   padding: 8px 10px;
   border-radius: 6px;
   font-family: Consolas, 'Courier New', monospace;
@@ -924,18 +968,15 @@ td.chk input {
 .modal-check {
   width: 860px;
 }
-.tbl-check tbody tr {
-  cursor: default;
-}
 .tbl-check td.c-date {
   width: 120px;
   font-weight: 600;
 }
 .tbl-check td.c-date.dow-sat {
-  color: #1d4ed8;
+  color: var(--primary-d);
 }
 .tbl-check td.c-date.dow-hol {
-  color: #dc2626;
+  color: var(--danger);
 }
 .tbl-check td.c-kind {
   width: 84px;
@@ -943,8 +984,8 @@ td.chk input {
   font-weight: 700;
 }
 .tbl-check td.kind-W {
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--warn-text);
+  background: var(--warn-bg);
 }
 .tbl-check td.c-item {
   width: 110px;
@@ -1018,14 +1059,14 @@ td.chk input {
 .info-doc .info-note {
   margin: 12px 0;
   padding: 10px 12px;
-  border: 1px solid #f0d264;
+  border: 1px solid var(--note-border);
   border-radius: 6px;
-  background: #fdf6d8;
-  color: #5c4a08;
+  background: var(--note-bg);
+  color: var(--note-text);
 }
 .info-doc .info-note h4 {
   margin-top: 0;
-  color: #5c4a08;
+  color: var(--note-text);
 }
 .info-doc .info-note p:last-child {
   margin-bottom: 0;
@@ -1045,13 +1086,13 @@ td.chk input {
 }
 /* 案件に紐づく区分（新規案件獲得〜不具合）は青パネルで表示 */
 .info-doc .info-item-blue {
-  border-color: #a9c7f0;
-  background: #eaf2fd;
+  border-color: var(--info-blue-border);
+  background: var(--info-blue-bg);
 }
 /* GAWS・Lab Meeting・APN関連作業は緑パネルで表示 */
 .info-doc .info-item-green {
-  border-color: #a6d8b0;
-  background: #e7f6ec;
+  border-color: var(--info-green-border);
+  background: var(--info-green-bg);
 }
 .info-doc .info-item-title {
   font-weight: 700;
@@ -1143,8 +1184,8 @@ td.chk input {
   border: 1px solid var(--ok);
   border-left: 4px solid var(--ok);
   border-radius: 6px;
-  background: #f0fdf4;
-  color: #14532d;
+  background: var(--copy-bg);
+  color: var(--copy-text);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -1169,7 +1210,7 @@ td.chk input {
 #bulkEditModal .modal {
   width: 900px;
 }
-/* タブ（変更 / 置換） */
+/* タブ（一括変更 / 個別変更 / 一括置換） */
 .modal-tabs {
   display: flex;
   gap: 4px;
@@ -1180,7 +1221,7 @@ td.chk input {
   border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
-  background: #eef1f5;
+  background: var(--th-bg);
   padding: 6px 18px;
 }
 .tab-btn.active {
@@ -1226,7 +1267,7 @@ td.chk input {
 }
 .bi-table thead th {
   border-top: 1px solid var(--border);
-  background: #eef1f5;
+  background: var(--th-bg);
   position: sticky;
   top: 0;
   z-index: 2;
@@ -1245,7 +1286,7 @@ td.chk input {
 }
 /* 初期値から変更された項目（＝更新対象）を薄赤で強調 */
 .bi-table .bi-changed {
-  background: #fdeaea;
+  background: var(--row-delay-warn);
 }
 .bi-table button {
   padding: 3px 7px;
@@ -1270,10 +1311,7 @@ td.chk input {
 
 /* 多段明細: 各日報は 1段目(bi-r1) + 遅れ報告/その他報告 の全幅段で1ブロック */
 .bi-r1 > td {
-  border-top: 2px solid #c7ccd4; /* 日報ブロックの区切り */
-}
-.bi-r-text > td {
-  border-bottom: 1px solid var(--border);
+  border-top: 2px solid var(--block-border); /* 日報ブロックの区切り */
 }
 .bi-textrow {
   display: flex;
@@ -1410,24 +1448,19 @@ td.chk input {
 .bc-before input,
 .bc-before select,
 .bc-before textarea {
-  background: #eef0f2;
-  color: #444;
-}
-.bc-before button:disabled {
-  background: #eef0f2;
-  color: #9aa1a9;
-  cursor: default;
+  background: var(--readonly-bg);
+  color: var(--readonly-text);
 }
 /* 「複数あり」ボタン（オレンジ枠。テキストボックスは出さずボタンのみ） */
 .multi-btn {
   align-self: flex-start;
-  background: #fff0d9;
+  background: var(--orange-soft);
   border-color: var(--warn);
   color: var(--warn);
   font-weight: 600;
 }
 .multi-btn:hover {
-  background: #ffe6bf;
+  background: var(--orange-soft-hover);
 }
 
 /* 「複数あり」ポップアップの一覧: 日付・日報コード列を日報一覧の案件コード列と同じ幅に固定 */
@@ -1502,8 +1535,8 @@ summary.bulk-replace-title {
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  background: #12263a;
-  color: #fff;
+  background: var(--navy);
+  color: var(--on-dark);
   padding: 8px 16px;
   border-radius: 8px;
   font-size: 13px;

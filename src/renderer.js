@@ -121,7 +121,7 @@ let listFilterMode = 'month'; // 一覧の表示モード（'month'=指定月の
 let filterYear = 0; // 月表示モードで絞り込む年（初期化時に当月をセット）
 let filterMonth = 0; // 月表示モードで絞り込む月（1-12）
 const selectedNippo = new Set(); // 選択中の日報コード（一括操作用）
-let ankenTarget = 'regist'; // 案件マスタ検索の反映先（'regist'=登録モーダル / 'bulk'=一括変更）
+let ankenTarget = 'regist'; // 案件マスタ検索の反映先（'regist'=登録モーダル / 'bulk'=一括変更 / 'indiv'=個別変更の行）
 let bulkRows = []; // 一括変更の対象行（モーダルを開いた時点の選択スナップショット）
 let bulkAfterEls = {}; // 一括変更（変更ページ）の変更後コントロール参照（key → 要素）
 let bulkChecks = {}; // 一括変更（変更ページ）の変更対象チェックボックス参照（key → checkbox）
@@ -188,7 +188,8 @@ function fmtDateWithDow(n) {
 }
 
 // 指定年の日本の祝日（振替休日・国民の休日を含む）を yyyymmdd の Set で返す（年ごとにキャッシュ）。
-// 春分・秋分の日は 1980〜2099 年の近似式で算出する。
+// 対応範囲は 2003〜2099 年（ハッピーマンデー完全施行後）。春分・秋分の日は近似式で算出する。
+// 年により異なる祝日（天皇誕生日の日付、2019年の即位関連、山の日の施行、2020・2021年の五輪特例）も反映する。
 const holidayCache = {};
 function jpHolidays(y) {
   if (holidayCache[y]) return holidayCache[y];
@@ -203,7 +204,12 @@ function jpHolidays(y) {
   add(1, 1); // 元日
   add(1, nthMonday(1, 2)); // 成人の日
   add(2, 11); // 建国記念の日
-  if (y >= 2020) add(2, 23); // 天皇誕生日
+  if (y >= 2020) add(2, 23); // 天皇誕生日（2020年〜）
+  if (y <= 2018) add(12, 23); // 天皇誕生日（〜2018年）
+  if (y === 2019) {
+    add(5, 1); // 天皇の即位の日（前後の 4/30・5/2 は国民の休日として下で付与）
+    add(10, 22); // 即位礼正殿の儀の行われる日
+  }
   add(3, Math.floor(20.8431 + 0.242194 * (y - 1980) - k)); // 春分の日
   add(4, 29); // 昭和の日
   add(5, 3); // 憲法記念日
@@ -219,9 +225,9 @@ function jpHolidays(y) {
     add(7, 23);
     add(8, 8);
   } else {
-    add(7, nthMonday(7, 3));
-    add(10, nthMonday(10, 2));
-    add(8, 11);
+    add(7, nthMonday(7, 3)); // 海の日
+    add(10, nthMonday(10, 2)); // スポーツの日（〜2019年は体育の日）
+    if (y >= 2016) add(8, 11); // 山の日（2016年〜）
   }
   add(9, nthMonday(9, 3)); // 敬老の日
   add(9, Math.floor(23.2488 + 0.242194 * (y - 1980) - k)); // 秋分の日
@@ -1886,7 +1892,7 @@ async function doBulkDeleteInner() {
   reportBulk('一括削除', res);
 }
 
-// ---- 一括変更（変更 / 置換） ---------------------------------------------
+// ---- 一括変更（一括変更 / 個別変更 / 一括置換） ---------------------------
 // 選択日報を DB 値そのままの registData 送信ボディへ（更新時は日報コードをキーにする）。
 function rowToBody(r) {
   return {
@@ -1981,9 +1987,9 @@ function buildBeforeControl(f, container) {
   }
 }
 
-// 変更後セル（編集可）を作り、ユーザーが触れた項目は bulkDirty に記録する。
+// 変更後セル（編集可）を作り、ユーザーが編集した項目は変更対象チェック（bulkChecks）を自動で ON にする。
 // 初期値は先頭選択行（bulkRows[0]）の値を流し込む（値が相違ありの場合も先頭行を表示）。
-// ユーザーが操作するまでは未編集（bulkDirty に入らない）＝適用対象外のまま。
+// 変更対象チェックが OFF の項目は適用しない。
 function buildAfterControl(f, container) {
   const first = bulkRows[0];
   // 編集したら「変更対象」チェックを自動でON（チェックが変更対象の正）
@@ -2484,7 +2490,7 @@ function buildBulkIndivGrid() {
     e.sonota.rows = 5;
     e.sonota.value = r['その他報告事項'] || '';
     wireIndivChange(e.sonota);
-    tbody.appendChild(indivTextRow('その他報告', e.sonota, 'bi-r-last'));
+    tbody.appendChild(indivTextRow('その他報告', e.sonota));
 
     indivEls.push(e);
   });
@@ -2502,10 +2508,10 @@ function wireIndivChange(el) {
 }
 
 // 個別変更の全幅テキスト段（ラベル + テキストエリアを colspan で1行に）。
-/** @param {string} label @param {any} textarea @param {string} [extraCls] */
-function indivTextRow(label, textarea, extraCls) {
+/** @param {string} label @param {any} textarea */
+function indivTextRow(label, textarea) {
   const tr = document.createElement('tr');
-  tr.className = 'bi-r-text' + (extraCls ? ' ' + extraCls : '');
+  tr.className = 'bi-r-text';
   const td = document.createElement('td');
   td.colSpan = 5;
   const wrap = document.createElement('div');
@@ -2773,7 +2779,7 @@ async function checkForUpdate() {
   // 初期表示時に更新を促す。キャンセルならボタンを残してそのまま利用継続。
   // enterApp は webview の dom-ready / did-stop-loading で複数回呼ばれ得るため、
   // 確認ダイアログはこのログインセッションで一度だけに制限する（多重表示防止）。
-  // （confirm はネイティブダイアログのため改行は \n。HTML タグ </br> は使えない）
+  // （uiConfirm は textContent＋pre-wrap で表示するため改行は \n。HTML タグは使えない）
   if (updatePromptShown) return;
   updatePromptShown = true;
   if (
@@ -2935,7 +2941,7 @@ function wire() {
   $('btnBulkDelete').addEventListener('click', () => doBulkDelete());
   $('btnBulkEdit').addEventListener('click', () => openBulkEdit());
 
-  // 一括変更 モーダル（変更 / 置換）
+  // 一括変更 モーダル（一括変更 / 個別変更 / 一括置換）
   $('btnCloseBulkEdit').addEventListener('click', () => closeModal('bulkEditModal'));
   $('btnTabChange').addEventListener('click', () => switchBulkTab('change'));
   $('btnTabIndiv').addEventListener('click', () => switchBulkTab('indiv'));

@@ -170,7 +170,7 @@
     </main>
 
     <!-- ③④ 登録モーダル（登録エリアのみ） -->
-    <div id="registModal" class="modal-overlay hidden" data-close="registModal">
+    <div id="registModal" class="modal-overlay hidden">
       <div class="modal">
         <div class="modal-head">
           <span class="modal-title"
@@ -256,9 +256,9 @@
       </div>
     </div>
 
-    <!-- 一括変更 モーダル（変更 / 置換 タブ）。案件検索モーダルより前に配置して、
+    <!-- 一括変更 モーダル（一括変更 / 個別変更 / 一括置換 タブ）。案件検索モーダルより前に配置して、
          案件検索モーダルがこの上に重なるようにする（DOM 順で重なり順を制御）。 -->
-    <div id="bulkEditModal" class="modal-overlay hidden" data-close="bulkEditModal">
+    <div id="bulkEditModal" class="modal-overlay hidden">
       <div class="modal">
         <div class="modal-head">
           <span class="modal-title">一括変更</span>
@@ -324,7 +324,7 @@
     </div>
 
     <!-- ⑤ 案件マスタ検索モーダル -->
-    <div id="ankenModal" class="modal-overlay hidden" data-close="ankenModal">
+    <div id="ankenModal" class="modal-overlay hidden">
       <div class="modal modal-narrow">
         <div class="modal-head">
           <span class="modal-title">案件マスタ一覧</span>
@@ -347,7 +347,7 @@
     </div>
 
     <!-- ⑥ 担当者マスタ検索モーダル -->
-    <div id="tantoModal" class="modal-overlay hidden" data-close="tantoModal">
+    <div id="tantoModal" class="modal-overlay hidden">
       <div class="modal modal-narrow">
         <div class="modal-head">
           <span class="modal-title">担当者マスタ一覧</span>
@@ -364,7 +364,7 @@
     </div>
 
     <!-- 担当変更の参照許可確認モーダル -->
-    <div id="permModal" class="modal-overlay hidden" data-close="permModal">
+    <div id="permModal" class="modal-overlay hidden">
       <div class="modal modal-narrow">
         <div class="modal-head">
           <span class="modal-title">担当変更</span>
@@ -386,7 +386,7 @@
     </div>
 
     <!-- 一括コピー モーダル -->
-    <div id="bulkCopyModal" class="modal-overlay hidden" data-close="bulkCopyModal">
+    <div id="bulkCopyModal" class="modal-overlay hidden">
       <div class="modal modal-narrow">
         <div class="modal-head">
           <span class="modal-title">一括コピー</span>
@@ -420,7 +420,7 @@
     </div>
 
     <!-- 一括変更「複数あり」ポップアップ（選択日報ごとの項目値を確認） -->
-    <div id="bulkMultiModal" class="modal-overlay hidden" data-close="bulkMultiModal">
+    <div id="bulkMultiModal" class="modal-overlay hidden">
       <div class="modal modal-narrow">
         <div class="modal-head">
           <span class="modal-title" id="bulkMultiTitle">複数あり</span>
@@ -433,7 +433,7 @@
     </div>
 
     <!-- 入力チェック結果ポップアップ -->
-    <div id="checkModal" class="modal-overlay hidden" data-close="checkModal">
+    <div id="checkModal" class="modal-overlay hidden">
       <div class="modal modal-check">
         <div class="modal-head">
           <span class="modal-title">入力チェック</span>
@@ -451,7 +451,7 @@
     </div>
 
     <!-- 案件コード設定基準（インフォメーション） -->
-    <div id="infoModal" class="modal-overlay hidden" data-close="infoModal">
+    <div id="infoModal" class="modal-overlay hidden">
       <div class="modal modal-wide">
         <div class="modal-head">
           <span class="modal-title">日報登録 案件コード設定基準</span>
