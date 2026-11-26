@@ -729,7 +729,8 @@ async function browserLogin() {
 
 // ブラウザ表示版の更新案内。ブラウザからは更新できないため、新しいバージョンがあれば
 // 「タスクトレイの『更新を確認』またはデスクトップ画面から更新」するよう案内する
-// （トーストで一度知らせ、フッターにも常時表示する）。あわせて現在のバージョンを表示する。
+// （フッターに常時表示し、他のトーストを表示中でなければトーストでも一度知らせる）。
+// あわせて現在のバージョンを表示する。
 async function browserCheckUpdate() {
   let info;
   try {
@@ -752,7 +753,11 @@ async function browserCheckUpdate() {
     el.title = msg;
     el.classList.remove('hidden');
   });
-  toast(msg, 'ok');
+  // 起動直後は一覧取得などのエラーをトーストで出している場合がある。更新確認は GitHub への
+  // 再試行で遅れて返ることがあり、そのまま出すとエラーのトーストを上書きして読めなくして
+  // しまうため、別のトーストを表示中ならトーストは出さない（案内はフッターに常時表示済み）。
+  const t = $('toast');
+  if (!t || !t.classList.contains('show')) toast(msg, 'ok');
 }
 
 // whoami/login の結果を処理: 確定→一覧、manual→手動入力、login→ログイン待ち。
