@@ -9,9 +9,9 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "gen-token": "node scripts/gen-token.js",
-    "dist": "npm run gen-token && electron-builder --win nsis",
-    "dist:portable": "npm run gen-token && electron-builder --win portable",
-    "publish": "npm run gen-token && electron-builder --win nsis --publish always"
+    "dist": "npm run gen-token -- --require && electron-builder --win nsis",
+    "dist:portable": "npm run gen-token -- --require && electron-builder --win portable",
+    "publish": "npm run gen-token -- --require && electron-builder --win nsis --publish always"
   },
   "author": "",
   "license": "UNLICENSED",

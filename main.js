@@ -54,7 +54,7 @@ let httpServer = null;
 let serverToken = ''; // 起動ごとのランダムトークン（配信 HTML に httpOnly Cookie で付与し /api で検証）
 let tray = null;
 let loginWin = null; // ブラウザ起点ログイン時に開く SSO ウィンドウ
-let isQuitting = false; // トレイ常駐: ウィンドウを閉じても終了しない（終了はトレイメニュー）
+let browserLoginInFlight = null; // ブラウザ起点ログインの多重実行防止（二度押しで窓が2枚開くのを防ぐ）
 
 let mainWindow = null;
 let autoUpdater = null; // 遅延初期化（app 準備後に一度だけ生成）
@@ -90,18 +90,33 @@ function setupSsoEmailCapture() {
 function identityPath() {
   return path.join(app.getPath('userData'), 'identity.json');
 }
+// 失敗時は動作継続を優先して null/false を返すが、原因追跡のためログには必ず残す
+// （未作成＝ENOENT は正常系なので出さない）。
 function readIdentity() {
   try {
     return JSON.parse(fs.readFileSync(identityPath(), 'utf8'));
   } catch (e) {
+    if (!(e && /** @type {any} */ (e).code === 'ENOENT'))
+      console.error('[nippo] identity read failed:', (e && e.message) || e);
     return null;
   }
 }
+// 書き込み途中のクラッシュで identity.json が壊れないよう、一時ファイルへ書いてから
+// rename で置き換える（同一ディレクトリ内の rename は既存ファイルを置換する）。
 function writeIdentity(obj) {
+  const dest = identityPath();
+  const tmp = dest + '.tmp';
   try {
-    fs.writeFileSync(identityPath(), JSON.stringify(obj));
+    fs.writeFileSync(tmp, JSON.stringify(obj));
+    fs.renameSync(tmp, dest);
     return true;
   } catch (e) {
+    console.error('[nippo] identity write failed:', (e && e.message) || e);
+    try {
+      fs.unlinkSync(tmp);
+    } catch (e2) {
+      /* 一時ファイルが無ければ何もしない */
+    }
     return false;
   }
 }
@@ -109,7 +124,9 @@ function clearIdentity() {
   try {
     fs.unlinkSync(identityPath());
   } catch (e) {
-    // 無ければ何もしない
+    // 無ければ何もしない（それ以外の失敗はログに残す）
+    if (!(e && /** @type {any} */ (e).code === 'ENOENT'))
+      console.error('[nippo] identity clear failed:', (e && e.message) || e);
   }
 }
 
@@ -140,14 +157,17 @@ function proxyToRkanri(endpoint, bodyStr) {
         req.setHeader('accept', 'application/json, text/plain, */*');
         req.setHeader('content-type', 'application/json');
         if (xsrf) req.setHeader('x-xsrf-token', xsrf);
-        let data = '';
+        // チャンク境界で UTF-8 のマルチバイト文字が分断され得るため、Buffer のまま集めて
+        // 最後に一括デコードする（チャンクごとの文字列連結は日本語を化けさせる）。
+        /** @type {Buffer[]} */
+        const chunks = [];
         req.on('response', (resp) => {
-          resp.on('data', (ch) => (data += ch));
+          resp.on('data', (ch) => chunks.push(Buffer.from(ch)));
           resp.on('end', () =>
             resolve({
               ok: resp.statusCode >= 200 && resp.statusCode < 300,
               status: resp.statusCode,
-              body: data
+              body: Buffer.concat(chunks).toString('utf8')
             })
           );
         });
@@ -287,13 +307,23 @@ function tryParseJson(text) {
   }
 }
 
-// ブラウザ表示モードの API 中継。JSON でない応答（＝ログイン画面へ弾かれた）ときだけ
+// ログイン画面へ弾かれた応答かどうか。net.request はリダイレクトを追従するため、
+// セッション切れは「最終的に 2xx でログイン HTML（JSON でない）」として返る
+// （追従されずに 3xx のまま返った場合もログインへのリダイレクトとみなす）。
+// 4xx/5xx（504 のゲートウェイ HTML 等）や通信エラー（status 0）は含めない。
+function isLoginBounce(pr, parsed) {
+  return !parsed.ok && pr.status >= 200 && pr.status < 400;
+}
+
+// ブラウザ表示モードの API 中継。ログイン画面へ弾かれた応答（isLoginBounce）のときだけ
 // サイレント SSO を挟んで一度だけ再実行する。ログインへリダイレクトされた要求はサーバー側で
 // 未処理なので、registData / deleteData のような非冪等 API でも二重実行にはならない。
+// 一方 4xx/5xx・通信エラーは、タイムアウト等の裏でサーバー側の登録が完了している可能性があり、
+// 再送すると二重登録になり得るため再実行せずそのまま返す（renderer がエラーとして表示する）。
 async function proxyWithWarmup(endpoint, bodyStr) {
   let pr = await proxyToRkanri(endpoint, bodyStr);
   let parsed = tryParseJson(pr.body);
-  if (!parsed.ok && (await silentSsoWarmup())) {
+  if (isLoginBounce(pr, parsed) && (await silentSsoWarmup())) {
     pr = await proxyToRkanri(endpoint, bodyStr);
     parsed = tryParseJson(pr.body);
   }
@@ -414,13 +444,38 @@ function openLoginWindow() {
 }
 
 // POST /api/login: 対話ログインでメールを確実に捕捉するため一旦セッションを消してから開く。
-async function handleBrowserLogin() {
-  await clearRkanriSession();
-  capturedEmail = null;
-  clearIdentity();
-  const ok = await openLoginWindow();
-  if (!ok) return { error: 'login' };
-  return await resolveWhoami();
+// - 捕捉メール（capturedEmail）は消す: 今回のログインで捕捉できなかった場合に、前回ログインの
+//   メールで照合して別人と確定してしまうのを防ぐため（正しさに必要）。
+// - 永続化 identity は消さない: 手動ユーザーID 利用者が毎回入力し直しになるのを防ぎ、ログインを
+//   中断しても本人情報が失われないようにする。アカウント切替時の破棄は /api/logout（再認証）が担う。
+// - 多重実行防止: 二度押しで進行中ログインのセッションを消したり窓を2枚開いたりしないよう、
+//   進行中なら既存のログイン窓を前面に出して同じ Promise を返す（silentSsoWarmup と同じ方式）。
+function handleBrowserLogin() {
+  if (browserLoginInFlight) {
+    try {
+      if (loginWin && !loginWin.isDestroyed()) {
+        if (loginWin.isMinimized()) loginWin.restore();
+        loginWin.show();
+        loginWin.focus();
+      }
+    } catch (e) {
+      /* noop */
+    }
+    return browserLoginInFlight;
+  }
+  const p = (async () => {
+    await clearRkanriSession();
+    capturedEmail = null;
+    const ok = await openLoginWindow();
+    if (!ok) return { error: 'login' };
+    return await resolveWhoami();
+  })();
+  browserLoginInFlight = p;
+  const release = () => {
+    if (browserLoginInFlight === p) browserLoginInFlight = null;
+  };
+  p.then(release, release);
+  return p;
 }
 
 // POST /api/logout: セッションと本人情報を破棄。
@@ -464,25 +519,49 @@ function serveLocalFile(res, name) {
     res.end('not found');
   }
 }
-// /api 呼び出しの認可: トークン Cookie 一致＋Origin（あれば）許可ホストのみ。
+// 正当な画面（自サーバーが配信した index.html）のオリジン一覧。
+// ブラウザは browserUrl（nippo.local か 127.0.0.1）で開くが、利用者が localhost で直接開く
+// こともあるため「ALLOWED_HOSTS の各ホスト × 実際に確保したポート（80 は省略形）」に限る。
+function allowedOrigins() {
+  if (!activePort) return new Set();
+  const suffix = activePort === 80 ? '' : ':' + activePort;
+  return new Set([...ALLOWED_HOSTS].map((h) => `http://${h}${suffix}`));
+}
+// /api 呼び出しの認可（新仕様.md §11.6）:
+// - トークン Cookie（httpOnly）がサーバー保持値と一致すること。
+// - Origin があれば「http://<許可ホスト>[:<確保ポート>]」と完全一致すること（ポート違いの別サービス等を拒否）。
+// - POST は Origin 必須（ブラウザは同一オリジンでも POST には Origin を付ける。GET の同一オリジン
+//   fetch は Origin を付けないため、GET は従来どおり Origin 無しを許容する）。
+// - POST は content-type: application/json 必須（他サイトからの「単純リクエスト」では付けられず、
+//   付けると CORS プリフライト（OPTIONS）になり本サーバーは許可しないため、クロスオリジン送信を防げる）。
+// 注: これらはブラウザ経由の攻撃（他サイト・DNS リバインディング等）への対策であり、同一ユーザー権限で
+//     動く他のローカルプロセスはヘッダを自由に偽装でき、トークンも GET / で取得できるため防げない。
 function apiAuthorized(req) {
   const m = String(req.headers.cookie || '').match(/nippo_token=([^;]+)/);
   if (!m || m[1] !== serverToken) return false;
   const origin = req.headers.origin;
   if (origin) {
-    try {
-      if (!ALLOWED_HOSTS.has(new URL(origin).hostname)) return false;
-    } catch (e) {
-      return false;
-    }
+    if (!allowedOrigins().has(String(origin).toLowerCase())) return false;
+  } else if (req.method !== 'GET') {
+    return false;
+  }
+  if (req.method === 'POST') {
+    const ct = String(req.headers['content-type'] || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (ct !== 'application/json') return false;
   }
   return true;
 }
+// 要求本文を読み切る。チャンク境界で UTF-8 のマルチバイト文字が分断され得るため、
+// Buffer のまま集めて最後に一括デコードする。
 function readLocalBody(req) {
   return new Promise((resolve) => {
-    let d = '';
-    req.on('data', (c) => (d += c));
-    req.on('end', () => resolve(d));
+    /** @type {Buffer[]} */
+    const chunks = [];
+    req.on('data', (c) => chunks.push(Buffer.from(c)));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
   });
 }
 function startLocalServer() {
@@ -640,10 +719,7 @@ function setupTray() {
         { type: 'separator' },
         {
           label: '終了',
-          click: () => {
-            isQuitting = true;
-            app.quit();
-          }
+          click: () => app.quit()
         }
       ])
     );
@@ -782,6 +858,26 @@ function getUpdater() {
   return autoUpdater;
 }
 
+// window.open の共通ハンドラ: http/https のみ既定ブラウザで開き、アプリ内には新規窓を作らない
+// （file: や独自スキーム等は openExternal に渡さない）。
+function denyAndOpenExternal({ url }) {
+  try {
+    const proto = new URL(url).protocol;
+    if (proto === 'http:' || proto === 'https:') shell.openExternal(url);
+  } catch (e) {
+    /* 不正 URL は開かない */
+  }
+  return /** @type {{ action: 'deny' }} */ ({ action: 'deny' });
+}
+
+// <webview>（rkanri を埋め込むゲスト）は mainWindow とは別の webContents のため、
+// mainWindow の setWindowOpenHandler は効かない。ゲスト生成時に同じハンドラを付与する。
+// （現状 <webview> は allowpopups 無しのため Electron 既定でポップアップ自体が抑止されるが、
+//   将来 allowpopups を付けてもアプリ内に窓が開かず既定ブラウザで開くようにしておく）
+app.on('web-contents-created', (_e, contents) => {
+  if (contents.getType() === 'webview') contents.setWindowOpenHandler(denyAndOpenExternal);
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
@@ -803,11 +899,10 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
 
-  // webview 内から window.open された場合は既定ブラウザで開く（アプリ内遷移を防ぐ）
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  // 自前 UI（index.html）から window.open された場合は既定ブラウザで開く（アプリ内遷移を防ぐ）。
+  // 注: これは mainWindow 自身にのみ効き、<webview> のゲストには効かない
+  // （ゲストには app の 'web-contents-created' で同じハンドラを付与している）。
+  mainWindow.webContents.setWindowOpenHandler(denyAndOpenExternal);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
