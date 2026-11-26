@@ -957,20 +957,42 @@ td.chk input {
 }
 /* 列幅を超える内容は隣の列へはみ出させず、セル右端で見切れさせる（… 省略はしない）。 */
 .tbl-getNippoList td[data-col],
-.tbl-getNippoList th[data-col] {
+.tbl-getNippoList th[data-col],
+.tbl-getTantoList td[data-col],
+.tbl-getTantoList th[data-col] {
   overflow: hidden;
 }
 /* セル内容は横スクロール可能な内箱（.cell）に入れる（renderer.js で生成）。
    table-cell 自体はスクロールコンテナにならず範囲選択が右端で止まるため、
    内箱を overflow-x:auto にして「見切れた文字をドラッグ選択すると横スクロールして
    現れ、そのままコピーできる」状態にする。スクロールバーは隠す。 */
-.tbl-getNippoList td[data-col] > .cell {
+.tbl-getNippoList td[data-col] > .cell,
+.tbl-getTantoList td[data-col] > .cell {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none; /* Firefox */
 }
-.tbl-getNippoList td[data-col] > .cell::-webkit-scrollbar {
+.tbl-getNippoList td[data-col] > .cell::-webkit-scrollbar,
+.tbl-getTantoList td[data-col] > .cell::-webkit-scrollbar {
   display: none; /* Chromium / Electron */
+}
+
+/* 担当者マスタ一覧（担当変更）の列幅。表示する文字に合わせて固定幅にする
+   （担当者コード＝P-000000 の7文字、担当者名＝日本語の氏名＋余裕）。部門は残りの幅。
+   table-layout: fixed で、収まらない文字（長い氏名・部門名）はセル右端で見切れさせ、
+   日報一覧と同じくドラッグ選択で見切れた部分を確認・コピーできるようにする。 */
+.tbl-getTantoList {
+  table-layout: fixed;
+}
+/* 部門プルダウンは長い部門名で幅が広がり、検索欄の次の行へ回り込まないよう最大幅を決める */
+#tantoBumon {
+  max-width: 180px;
+}
+.tbl-getTantoList [data-col='key'] {
+  width: 90px;
+}
+.tbl-getTantoList [data-col='名称1'] {
+  width: 160px;
 }
 
 .frow > label.radio {
