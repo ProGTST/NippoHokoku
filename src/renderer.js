@@ -871,7 +871,7 @@ function groupRowsByDate(rows) {
   return m;
 }
 
-// 日付ごとに「日付(曜) / 作業件数 / 作業合計時間ゲージ / 作業進捗（最多の割合）ゲージ」を表示する。
+// 日付ごとに「日付(曜) / 作業合計時間ゲージ / 作業進捗（最多の割合）ゲージ … 作業件数（右端）」を表示する。
 // 集計は絞り込み条件に関係なくその日の全日報（allNippoRows）で行う（1日の合計時間を正しく見せるため）。
 // 絞り込みで一部だけ表示されている場合は件数を「表示/全体」で示す。
 // dayAll: その日の全日報 / dayShown: その日の表示中（絞り込み後）の日報。
@@ -915,14 +915,6 @@ function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGrou
   dateEl.textContent = fmtDateWithDow(dn);
   box.appendChild(dateEl);
 
-  const cnt = document.createElement('span');
-  cnt.className = 'dh-count';
-  cnt.textContent =
-    dayShown.length === dayAll.length
-      ? `作業件数 ${dayAll.length}件`
-      : `作業件数 ${dayShown.length}/${dayAll.length}件`;
-  box.appendChild(cnt);
-
   // 作業合計時間ゲージ（8h 未満=黄 / 8h ちょうど=緑 / 8h 超=赤。8h で満杯）
   const timeCls = total < STD_HOURS ? 'g-under' : total > STD_HOURS ? 'g-over' : 'g-just';
   box.appendChild(
@@ -958,6 +950,15 @@ function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGrou
       .join(' / ');
     box.appendChild(buildGauge(`${top} ${Math.round(ratio * 100)}%`, ratio, shCls, detail));
   }
+
+  // 作業件数は行の右端に表示する（CSS で右寄せ。横スクロール中も見える位置に固定）
+  const cnt = document.createElement('span');
+  cnt.className = 'dh-count';
+  cnt.textContent =
+    dayShown.length === dayAll.length
+      ? `作業件数 ${dayAll.length}件`
+      : `作業件数 ${dayShown.length}/${dayAll.length}件`;
+  box.appendChild(cnt);
 
   td.appendChild(box);
   tr.appendChild(td);

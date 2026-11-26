@@ -714,6 +714,11 @@ th {
 .tbl-getTantoList tbody tr:hover {
   background: var(--row-hover);
 }
+/* 日報一覧の行は既定で背景色を持たせる（横スクロールで固定する列のセルが行の背景色を
+   引き継いで、下を流れる列の文字を隠せるように。遅れ・非稼働・日付行の色は下の規則で上書き） */
+.tbl-getNippoList tbody tr {
+  background: var(--panel);
+}
 /* 作業進捗の遅れを行全体で強調（濃度: 遅れ > やや遅れ） */
 tbody tr.delay-warn {
   background: var(--row-delay-warn); /* やや遅れ：薄い赤色 */
@@ -769,6 +774,11 @@ td.gchk input {
   font-weight: 700;
   font-size: 12.5px;
   min-width: 118px;
+  /* 横スクロール中も日付が見えるよう、固定した選択列の右に留める */
+  position: sticky;
+  left: 46px; /* 選択列の実幅(38px) + セル左余白(8px) */
+  z-index: 1;
+  background: var(--date-row-bg);
 }
 .dh-date.dow-sat {
   color: var(--primary-d);
@@ -776,9 +786,14 @@ td.gchk input {
 .dh-date.dow-hol {
   color: var(--danger);
 }
+/* 作業件数は日付ヘッダー行の右端（横スクロール中も見えている範囲の右端に留める） */
 .dh-count {
   color: var(--text-sub);
-  min-width: 84px;
+  margin-left: auto;
+  padding-left: 12px;
+  position: sticky;
+  right: 8px;
+  background: var(--date-row-bg);
 }
 .dh-gauge {
   display: inline-flex;
@@ -860,6 +875,31 @@ td.chk input {
 /* 日報一覧の固定幅列（選択列は .chk＝34px。以下 案件コード/取引先名/案件名/作業時間/作業内容/作業進捗）。
    width/min/max を揃えて内容に依らず一定幅にする。残り列（その他報告事項）が可変幅で残りを埋める。
    日付は列ではなく日付ヘッダー行（tr.date-row）で表示する。 */
+/* 横スクロール時に選択列（行・日付行のチェック）と案件コード列を固定する。
+   固定セルは行の背景色を引き継ぎ（background: inherit）、下を流れる列の文字を隠す。 */
+.tbl-getNippoList .chk,
+.tbl-getNippoList .gchk {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: inherit;
+}
+.tbl-getNippoList td[data-col='案件コード'] {
+  position: sticky;
+  left: 38px; /* 選択列の実幅（width 34px＋左右ボーダー等で 38px になる） */
+  z-index: 1;
+  background: inherit;
+}
+/* 見出しの固定セルは縦（上端）と横（左端）の両方に固定し、他の見出しより手前に出す */
+.tbl-getNippoList th.chk,
+.tbl-getNippoList th[data-col='案件コード'] {
+  position: sticky;
+  z-index: 3;
+  background: var(--th-bg);
+}
+.tbl-getNippoList th[data-col='案件コード'] {
+  left: 38px;
+}
 .tbl-getNippoList [data-col='案件コード'] {
   width: 85px;
   min-width: 85px;
