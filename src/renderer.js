@@ -975,6 +975,10 @@ function clipText(s) {
   return s.length > ERR_TEXT_MAX ? s.slice(0, ERR_TEXT_MAX) + '…' : s;
 }
 
+// callApi が null を返したときの理由（ログイン切れ以外：実行エラー・応答なし・準備中）。
+// 一括処理（runBulk）が中断理由として結果に出すために使う。ログイン切れのときは空。
+let lastApiFailure = '';
+
 // API 実行。結果(result)を返す（テーブル描画は呼び出し側の責務）。
 // ログイン切れ/HTML 応答時は認証画面に戻し null を返す。
 // silent=true のとき成功トーストを抑制（自動処理用。エラー系は抑制しない）。
@@ -983,7 +987,9 @@ function clipText(s) {
 //  ログイン切れ・実行エラーの案内は抑制しない）。
 /** @param {string} endpoint @param {any} body @param {string} [label] @param {boolean | 'all'} [silent] */
 async function callApi(endpoint, body, label, silent) {
+  lastApiFailure = '';
   if (!IS_BROWSER && !webReady) {
+    lastApiFailure = '埋め込みブラウザの準備中';
     toast('埋め込みブラウザの準備中です。ログイン後に再度お試しください。', 'ng');
     return null;
   }
@@ -998,14 +1004,16 @@ async function callApi(endpoint, body, label, silent) {
   try {
     result = await execApi(endpoint, body);
   } catch (e) {
-    setStatus('実行エラー: ' + e.message);
-    toast('実行エラー: ' + e.message, 'ng');
+    lastApiFailure = '実行エラー: ' + e.message;
+    setStatus(lastApiFailure);
+    toast(lastApiFailure, 'ng');
     return null;
   }
   $('jsonOut').textContent = JSON.stringify(result, null, 2);
 
   if (!result) {
-    setStatus('応答なし');
+    lastApiFailure = '応答なし';
+    setStatus(lastApiFailure);
     return null;
   }
 
@@ -2050,6 +2058,7 @@ async function runBulk(label, items, task, keyOf) {
     aborted: 0,
     canceled: 0,
     limited: 0, // 再試行しても失敗したため送らずに止めた残りの件数
+    abortReason: '', // ログイン切れ以外で中断したときの理由（実行エラー・応答なし等）
     bizNg: 0, // 失敗のうち業務エラー（{"status":"error"} 等。件数制限で起きる失敗）の件数
     total: items.length, // 処理対象の件数（件数制限の案内を出すかの判定に使う）
     reloadFailed: false // 処理後の一覧の取り直しに失敗した（呼び出し側で設定）
@@ -2094,8 +2103,10 @@ async function runBulk(label, items, task, keyOf) {
     }
     if (r === 'skip') res.skip++;
     else if (r === null || r === undefined) {
-      // 認証切れ等。残りは送らずに中断（この項目も未処理として数える）
+      // 認証切れ・実行エラー等。残りは送らずに中断（この項目も未処理として数える）。
+      // ログイン切れ以外は理由を結果に出す（callApi が lastApiFailure に残す）
       res.aborted = items.length - i;
+      res.abortReason = lastApiFailure;
       break;
     } else if (isBizOk(r)) res.ok++;
     else {
@@ -2139,7 +2150,12 @@ function reportBulk(label, res, skipLabel) {
   if (res.ng) parts.push(`失敗 ${res.ng} 件`);
   if (res.skip) parts.push(`${skipLabel || '対象なし'} ${res.skip} 件`);
   if (res.canceled) parts.push(`中断 ${res.canceled} 件（未処理）`);
-  if (res.aborted) parts.push(`未処理 ${res.aborted} 件（ログイン切れ等で中断）`);
+  if (res.aborted)
+    parts.push(
+      res.abortReason
+        ? `未処理 ${res.aborted} 件（中断：${res.abortReason}）`
+        : `未処理 ${res.aborted} 件（ログイン切れで中断）`
+    );
   // 20 件を超える処理で業務エラー（件数制限）が出たときは、原因と対処を案内文でまとめて示す
   const limitNote = res.total > BULK_BATCH && (res.bizNg > 0 || res.limited > 0);
   if (res.limited)
