@@ -1956,6 +1956,17 @@ async function runExclusive(fn) {
   }
 }
 
+// 一括処理の送る順番: 日付の昇順、同じ日付の中は元の並び（日報一覧の表示順）のまま（安定ソート）。
+// 一括コピー・一括削除・一括変更・個別変更・一括置換で共通（日付は送信する日付＝変更後の日付。
+// 一括削除は削除する日報の日付）。
+/** @template T @param {T[]} jobs @param {(job: T) => string} dateOf @returns {T[]} */
+function sortJobsByDate(jobs, dateOf) {
+  return jobs
+    .map((job, i) => ({ job, i, n: dateNum(dateOf(job)) }))
+    .sort((a, b) => a.n - b.n || a.i - b.i)
+    .map((x) => x.job);
+}
+
 // ---- 一括処理の進捗・結果ポップアップ（progressModal） ---------------------------
 // 一括コピー・一括削除・一括変更・個別変更・一括置換の進捗をゲージ付きのポップアップで表示し、
 // 終わったら同じポップアップに処理結果（成功・失敗件数、失敗した日報と理由）を表示する。
@@ -2692,6 +2703,7 @@ async function doBulkCopyInner() {
   closeModal('bulkCopyModal');
   const jobs = [];
   // 日付の昇順（dates は昇順）→ 同じ日付の中は日報一覧の表示順（selectedRows は表示順）で送る
+  // （他の一括処理の sortJobsByDate と同じ順番）
   dates.forEach((d) => rows.forEach((r) => jobs.push({ r, d })));
   const res = await runBulk(
     '一括コピー',
@@ -2738,7 +2750,7 @@ async function doBulkDeleteInner() {
     return;
   const res = await runBulk(
     '一括削除',
-    rows,
+    sortJobsByDate(rows, (r) => r['日付']),
     (r) => callApi('deleteData', { nippoCd: r['日報コード'] }, '一括削除', true),
     (r) => String(r['日報コード'])
   );
@@ -3136,7 +3148,7 @@ async function doBulkChangeInner() {
   closeModal('bulkEditModal');
   const res = await runBulk(
     '一括変更',
-    jobs,
+    sortJobsByDate(jobs, (body) => body.date),
     (body) => callApi('registData', body, '一括変更', true),
     (body) => String(body.nippoCd)
   );
@@ -3228,7 +3240,7 @@ async function doBulkReplaceInner() {
   closeModal('bulkEditModal');
   const res = await runBulk(
     '一括置換',
-    jobs,
+    sortJobsByDate(jobs, (body) => body.date),
     (body) => callApi('registData', body, '一括置換', true),
     (body) => String(body.nippoCd)
   );
@@ -3517,7 +3529,7 @@ async function doBulkIndivInner() {
 
   const res = await runBulk(
     '個別変更',
-    jobs,
+    sortJobsByDate(jobs, (j) => j.body.date),
     async (j) => {
       const r = await callApi('registData', j.body, '個別変更', true);
       if (isBizOk(r)) {
