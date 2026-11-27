@@ -7,6 +7,14 @@
 // renderer.js から参照できるよう window に公開する（型は types/globals.d.ts の Window.RELEASE_NOTES）。
 window.RELEASE_NOTES = [
   {
+    version: '0.1.23',
+    date: '2026-11-27',
+    items: [
+      { type: 'improve', text: '日付はボタンからカレンダーで選べるように' },
+      { type: 'fix', text: '日付欄を押すと文字が青く浮き出る不具合を修正' }
+    ]
+  },
+  {
     version: '0.1.22',
     date: '2026-11-27',
     items: [

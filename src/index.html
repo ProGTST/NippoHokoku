@@ -220,13 +220,45 @@
               <div class="frow">
                 <label>日付</label>
                 <button id="btnDatePrev" class="date-shift" title="前の日へ">◀</button>
-                <!-- 日付欄の文字は Chromium が描画し曜日を足せないため、文字を透明にして
-                     「yyyy/mm/dd(曜)」を上に重ねて表示する（クリックは下の日付欄へ通す） -->
+                <!-- 日付はボタン（「yyyy/mm/dd(曜)」を表示）で、押すと自作のカレンダーを開いて選ぶ。
+                     値は隠し項目 #date に yyyy-mm-dd で持つ（ブラウザ標準の日付欄は使わない） -->
                 <span id="dateField" class="date-field">
-                  <input id="date" type="date" class="w-field" />
-                  <span class="date-disp" aria-hidden="true"
-                    ><span id="dateDispText"></span><span id="dateDow" class="date-dow"></span
-                  ></span>
+                  <input id="date" type="hidden" />
+                  <button
+                    id="dateBtn"
+                    type="button"
+                    class="w-field date-pick"
+                    title="カレンダーから日付を選ぶ"
+                    aria-haspopup="dialog"
+                  >
+                    <span class="date-pick-text"
+                      ><span id="dateDispText"></span><span id="dateDow" class="date-dow"></span
+                    ></span>
+                    <svg
+                      class="date-pick-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <rect x="3" y="4.5" width="18" height="16" rx="2" />
+                      <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
+                    </svg>
+                  </button>
+                  <div id="calPop" class="cal-pop hidden" role="dialog" aria-label="日付を選ぶ">
+                    <div class="cal-head">
+                      <button id="calPrev" type="button" class="cal-nav" title="前の月">◀</button>
+                      <span id="calTitle" class="cal-title"></span>
+                      <button id="calNext" type="button" class="cal-nav" title="次の月">▶</button>
+                    </div>
+                    <div id="calGrid" class="cal-grid"></div>
+                    <div class="cal-foot">
+                      <button id="calToday" type="button">今日</button>
+                    </div>
+                  </div>
                 </span>
                 <button id="btnDateNext" class="date-shift" title="次の日へ">▶</button>
                 <button data-days="-3" class="date-btn">一昨昨日</button>

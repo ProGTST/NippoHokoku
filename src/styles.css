@@ -659,40 +659,121 @@ input[readonly] {
 button.date-shift {
   padding: 5px 7px;
 }
-/* 日付欄の中に「yyyy/mm/dd(曜)」を重ねて表示する。日付欄（input[type=date]）の文字は Chromium が
-   描画し表示形式を変えられないため、値があるときは元の文字を透明にし、上に同じ位置で重ねる。
-   重ねた表示は pointer-events: none で、クリックは下の日付欄（カレンダー）へ通す。
-   値が空のときは重ねず、日付欄の元の表示（年/月/日）を見せる。 */
+/* 日報登録の日付: ボタン（「yyyy/mm/dd(曜)」＋カレンダーアイコン）と、押すと開く自作カレンダー。
+   ブラウザ標準の日付欄（input[type=date]）は文字の表示形式を変えられず曜日を出せないため使わない。 */
 .date-field {
   position: relative;
   display: inline-flex;
   flex: 0 0 auto;
 }
-.date-disp {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  display: none;
+button.date-pick {
+  display: inline-flex;
   align-items: center;
-  padding-left: 9px; /* input の border 1px ＋ padding 7px ＋ 日付欄内側の余白 1px */
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 8px;
   font-size: 13px;
+  text-align: left;
+  background: var(--panel);
   color: var(--text);
+}
+button.date-pick:hover,
+button.date-pick[aria-expanded='true'] {
+  border-color: var(--primary);
+  background: var(--panel);
+}
+.date-pick-text {
   white-space: nowrap;
-  pointer-events: none;
 }
-.date-field.has-value .date-disp {
+.date-pick-text .is-empty {
+  color: var(--muted);
+}
+.date-pick-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+.cal-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  width: 252px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.cal-pop.hidden {
+  display: none;
+}
+.cal-head {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
 }
-.date-field.has-value input[type='date']::-webkit-datetime-edit {
-  color: transparent;
+.cal-title {
+  font-weight: 700;
+  font-size: 13px;
 }
-/* クリックで選ばれた年・月・日の欄の強調（背景色）も、重ねた表示の下から透けないよう消す */
-.date-field.has-value input[type='date']::-webkit-datetime-edit-year-field:focus,
-.date-field.has-value input[type='date']::-webkit-datetime-edit-month-field:focus,
-.date-field.has-value input[type='date']::-webkit-datetime-edit-day-field:focus {
+button.cal-nav {
+  padding: 2px 8px;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.cal-wd {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+.cal-wd.dow-sat {
+  color: var(--primary-d);
+}
+.cal-wd.dow-hol {
+  color: var(--danger);
+}
+button.cal-day {
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: transparent;
-  color: transparent;
+  font-size: 12px;
+  color: var(--text);
+}
+button.cal-day:hover {
+  background: var(--row-hover);
+}
+button.cal-day.dow-sat {
+  color: var(--primary-d);
+}
+button.cal-day.dow-hol {
+  color: var(--danger);
+}
+button.cal-day.is-other {
+  opacity: 0.4;
+}
+button.cal-day.is-today {
+  border-color: var(--primary);
+  font-weight: 700;
+}
+button.cal-day.is-selected,
+button.cal-day.is-selected:hover {
+  background: var(--primary);
+  color: var(--on-dark);
+  font-weight: 700;
+}
+.cal-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
 }
 .date-dow {
   font-weight: 600;

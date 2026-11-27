@@ -430,6 +430,7 @@ function closeModalsForAuth() {
   if (isOpen('confirmModal')) closeConfirm(false);
   suspendedRegist = isOpen('registModal') ? { tanto: getVal('tanto') } : null;
   qsa('.modal-overlay').forEach((el) => el.classList.add('hidden'));
+  closeCalendar(false);
 }
 // 再ログイン後、ログイン切れの前と同じ担当者なら日報登録モーダルを入力内容のまま開き直す。
 // 別の担当者で入り直した場合は開き直さない（別人の画面に前の入力を出さない）。
@@ -1602,6 +1603,7 @@ function openModal(id) {
   updateHeaderTitle();
 }
 function closeModal(id) {
+  if (id === 'registModal') closeCalendar(false); // 日報登録を閉じたらカレンダーも閉じる
   $(id).classList.add('hidden');
   updateHeaderTitle();
 }
@@ -2033,25 +2035,124 @@ async function doDeleteInner() {
   }
 }
 
-// 日報登録の日付欄の中に「yyyy/mm/dd(曜)」を表示する（曜日は 土=青、日曜・祝日=赤。日報一覧の
-// 日付ヘッダー行と同じ判定）。日付欄の文字は CSS（.date-field.has-value）で透明にし、上に重ねて表示する。
+// 日報登録の日付ボタンに「yyyy/mm/dd(曜)」を表示する（曜日は 土=青、日曜・祝日=赤。日報一覧の
+// 日付ヘッダー行と同じ判定）。日付が空なら「日付を選択」。
 function updateDateDow() {
   const el = $('dateDow');
+  const txt = $('dateDispText');
   const n = dateNum(getVal('date'));
-  $('dateField').classList.toggle('has-value', !!n);
   if (!n) {
-    $('dateDispText').textContent = '';
+    txt.textContent = '日付を選択';
+    txt.className = 'is-empty';
     el.textContent = '';
     el.className = 'date-dow';
     el.title = '';
     return;
   }
-  const d = numToDate(n);
-  $('dateDispText').textContent =
-    `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-  el.textContent = `(${WEEKDAYS[d.getDay()]})`;
+  txt.className = '';
+  txt.textContent = numToSlash(n);
+  el.textContent = `(${WEEKDAYS[numToDate(n).getDay()]})`;
   el.className = ('date-dow ' + dowClass(n)).trim();
   el.title = jpHolidays(Math.floor(n / 10000)).has(n) ? '祝日' : '';
+}
+// yyyymmdd 数値 → 「yyyy/mm/dd」／「yyyy-mm-dd」（#date の値）
+function numToSlash(n) {
+  const d = numToDate(n);
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+}
+function numToIso(n) {
+  return numToSlash(n).replace(/\//g, '-');
+}
+
+// ---- 日報登録の日付カレンダー（日付ボタンで開く自作カレンダー） ------------------
+// ブラウザ標準の日付欄は文字の表示形式を変えられず、曜日を重ねる方式ではフォーカス時に
+// 年・月・日の強調表示が透けて見えたため、ボタン＋自作カレンダーで日付を選ぶ。
+// 曜日・祝日の色は日報一覧と同じ判定（土=青、日曜・祝日=赤）。キー操作: 矢印で日付移動、
+// Enter で決定、Esc で閉じる。カレンダーの外をクリックしても閉じる。
+let calYear = 0;
+let calMonth = 0; // 1〜12
+let calFocus = 0; // キー操作で選んでいる日（yyyymmdd）
+function isCalendarOpen() {
+  return !$('calPop').classList.contains('hidden');
+}
+function openCalendar() {
+  const n = dateNum(getVal('date')) || dateToNum(new Date());
+  calYear = Math.floor(n / 10000);
+  calMonth = Math.floor(n / 100) % 100;
+  calFocus = n;
+  renderCalendar();
+  $('calPop').classList.remove('hidden');
+  $('dateBtn').setAttribute('aria-expanded', 'true');
+  focusCalDay();
+}
+function closeCalendar(returnFocus) {
+  if (!isCalendarOpen()) return;
+  $('calPop').classList.add('hidden');
+  $('dateBtn').setAttribute('aria-expanded', 'false');
+  if (returnFocus) $('dateBtn').focus();
+}
+function renderCalendar() {
+  $('calTitle').textContent = `${calYear}年${calMonth}月`;
+  const grid = $('calGrid');
+  grid.innerHTML = '';
+  WEEKDAYS.forEach((w, i) => {
+    const h = document.createElement('span');
+    h.className = 'cal-wd' + (i === 0 ? ' dow-hol' : i === 6 ? ' dow-sat' : '');
+    h.textContent = w;
+    grid.appendChild(h);
+  });
+  const selected = dateNum(getVal('date'));
+  const today = dateToNum(new Date());
+  // 1日を含む週の日曜日から 6 週分（42 日）を並べる
+  const start = new Date(calYear, calMonth - 1, 1);
+  start.setDate(start.getDate() - start.getDay());
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const n = dateToNum(d);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.n = String(n);
+    b.textContent = String(d.getDate());
+    const cls = ['cal-day', dowClass(n)];
+    if (d.getMonth() + 1 !== calMonth) cls.push('is-other');
+    if (n === today) cls.push('is-today');
+    if (n === selected) cls.push('is-selected');
+    b.className = cls.filter(Boolean).join(' ');
+    b.title = numToSlash(n) + (jpHolidays(d.getFullYear()).has(n) ? '（祝日）' : '');
+    b.tabIndex = n === calFocus ? 0 : -1;
+    b.addEventListener('click', () => pickCalDate(n));
+    grid.appendChild(b);
+  }
+}
+function focusCalDay() {
+  const b = qs(`#calGrid button[data-n="${calFocus}"]`);
+  if (b) b.focus();
+}
+// 表示中の月を delta か月ずらす（キー操作の選択日は 1 日に寄せる）
+function shiftCalMonth(delta) {
+  const d = new Date(calYear, calMonth - 1 + delta, 1);
+  calYear = d.getFullYear();
+  calMonth = d.getMonth() + 1;
+  calFocus = dateToNum(d);
+  renderCalendar();
+}
+// キー操作で選んでいる日を delta 日ずらす（月をまたいだら表示月も切り替える）
+function moveCalFocus(delta) {
+  const d = numToDate(calFocus);
+  d.setDate(d.getDate() + delta);
+  calFocus = dateToNum(d);
+  if (d.getFullYear() !== calYear || d.getMonth() + 1 !== calMonth) {
+    calYear = d.getFullYear();
+    calMonth = d.getMonth() + 1;
+  }
+  renderCalendar();
+  focusCalDay();
+}
+function pickCalDate(n) {
+  setVal('date', numToIso(n));
+  closeCalendar(true);
+  doTotal(); // 合計の取り直し（曜日表示・新規時の作業時間の初期値もここで更新）
 }
 // 日報登録の日付を delta 日ずらす（◀▶ボタン）。日付が空なら今日を基準にする。
 function shiftRegDate(delta) {
@@ -3596,13 +3697,30 @@ function wire() {
       doTotal();
     });
   });
-  // 日付はカレンダー入力のみ（キーボードでの直接入力は不可。Tab 等は許可）
-  $('date').addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab') e.preventDefault();
+  // 日付はボタンで自作カレンダーを開いて選ぶ（選んだら pickCalDate で合計を取り直す）
+  $('dateBtn').addEventListener('click', () =>
+    isCalendarOpen() ? closeCalendar(true) : openCalendar()
+  );
+  $('calPrev').addEventListener('click', () => shiftCalMonth(-1));
+  $('calNext').addEventListener('click', () => shiftCalMonth(1));
+  $('calToday').addEventListener('click', () => pickCalDate(dateToNum(new Date())));
+  $('calPop').addEventListener('keydown', (e) => {
+    const onDay = e.target.classList && e.target.classList.contains('cal-day');
+    const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeCalendar(true);
+    } else if (onDay && e.key in moves) {
+      e.preventDefault();
+      moveCalFocus(moves[e.key]);
+    }
   });
-  // カレンダーで日付が変わったら合計を取り直す（キー入力は禁止のため change だけで拾える。
-  // input と二重に登録すると1回の変更で2回通信してしまう）
-  $('date').addEventListener('change', () => doTotal());
+  // カレンダーの外（日付ボタン以外）をクリックしたら閉じる
+  document.addEventListener('mousedown', (e) => {
+    if (isCalendarOpen() && !$('dateField').contains(/** @type {any} */ (e.target)))
+      closeCalendar(false);
+  });
   // 作業時間（数値入力）は、フォーカス中にマウスホイールを回すと Chromium が値を増減してしまい、
   // 画面をスクロールしたつもりで作業時間が変わる。ホイールでは値を変えず、モーダルの本文だけを
   // スクロールさせる（増減はスピンボタンと上下キーで行う）。
