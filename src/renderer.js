@@ -978,6 +978,10 @@ function clipText(s) {
 // API 実行。結果(result)を返す（テーブル描画は呼び出し側の責務）。
 // ログイン切れ/HTML 応答時は認証画面に戻し null を返す。
 // silent=true のとき成功トーストを抑制（自動処理用。エラー系は抑制しない）。
+// silent='all' のときは、業務エラー・HTTP エラーのトーストとステータス欄の表示も抑制する
+// （一括処理用。失敗は runBulk が理由ごとに集計し、結果ポップアップでまとめて知らせるため。
+//  ログイン切れ・実行エラーの案内は抑制しない）。
+/** @param {string} endpoint @param {any} body @param {string} [label] @param {boolean | 'all'} [silent] */
 async function callApi(endpoint, body, label, silent) {
   if (!IS_BROWSER && !webReady) {
     toast('埋め込みブラウザの準備中です。ログイン後に再度お試しください。', 'ng');
@@ -1018,6 +1022,7 @@ async function callApi(endpoint, body, label, silent) {
 
   // エラー時はサーバー応答をそのまま「ポップアップ（toast）」で表示（canned メッセージに変換しない）
   if (!result.ok) {
+    if (silent === 'all') return result;
     setStatus(raw ? status + ' / ' + raw : status);
     toast(`${label || endpoint}: ${status}${raw ? ' / ' + raw : ''}`, 'ng');
     return result;
@@ -1025,6 +1030,7 @@ async function callApi(endpoint, body, label, silent) {
   // HTTP は 200 でも {status:"success"} 以外はビジネスエラー扱い → 応答をそのまま出す。
   // 更新系は status の無い応答（空の本文など）も成功とせずエラーとして表示する。
   if ((biz !== null && biz !== 'success') || (biz === null && MUTATION_ENDPOINTS.has(endpoint))) {
+    if (silent === 'all') return result;
     setStatus(status + ' / ' + (raw || `status: ${biz}`));
     toast(`${label || endpoint}: ${raw || `status: ${biz}`}`, 'ng');
     return result;
@@ -1979,6 +1985,14 @@ let bulkCancelRequested = false;
 const BULK_BATCH = 20; // この件数を送るごとに待つ
 const BULK_BATCH_WAIT_SEC = 3; // 20 件ごとの待ち時間（秒）
 const BULK_RETRY_WAIT_SEC = 10; // 失敗したときに再試行するまでの待ち時間（秒）
+// 再試行の対象か: HTTP として正常に応答があり、内容が業務エラー（status が success 以外）のとき。
+// status の無い応答（空の本文等）・HTTP エラー・通信エラーは、日報システム側で処理済みかどうか
+// 分からないため対象外（送り直すと二重登録になり得る）。
+function isRetryableBizError(r) {
+  if (!r || typeof r !== 'object' || !r.ok) return false;
+  const biz = bizStatus(r);
+  return biz !== null && biz !== 'success';
+}
 // 進捗ポップアップに残り秒数を出しながら待つ。「中断」が押されたらすぐ戻る。
 /** @param {number} sec @param {(left: number) => string} textOf */
 async function waitWithCountdown(sec, textOf) {
@@ -2034,6 +2048,7 @@ async function runBulk(label, items, task, keyOf) {
     reasons: /** @type {Map<string, number>} */ (new Map()), // 失敗理由 → 件数
     aborted: 0,
     canceled: 0,
+    limited: 0, // 再試行しても失敗したため送らずに止めた残りの件数
     reloadFailed: false // 処理後の一覧の取り直しに失敗した（呼び出し側で設定）
   };
   openProgress(label, items.length);
@@ -2055,13 +2070,19 @@ async function runBulk(label, items, task, keyOf) {
       break;
     }
     let r = await send(items[i]);
-    // 失敗（業務エラー・HTTP エラー）したら、少し待って 1 回だけ送り直す（呼び出し回数の制限対策）
-    if (r !== 'cancel' && r !== 'skip' && r != null && !isBizOk(r)) {
+    let retryFailed = false;
+    // 日報システムが業務エラー（HTTP は正常で {"status":"error"} 等）を返したら、少し待って 1 回だけ
+    // 送り直す（呼び出し回数の制限対策）。HTTP エラー・通信エラー（504 等）は送り直さない
+    // （日報システム側では処理済みのことがあり、新規登録を送り直すと二重登録になるため）。
+    if (isRetryableBizError(r)) {
       await waitWithCountdown(
         BULK_RETRY_WAIT_SEC,
         (left) => `${i + 1} 件目が失敗したため、待ってから再試行します…（あと ${left} 秒）`
       );
-      if (!bulkCancelRequested) r = await send(items[i]);
+      if (!bulkCancelRequested) {
+        r = await send(items[i]);
+        retryFailed = r !== 'cancel' && r != null && r !== 'skip' && !isBizOk(r);
+      }
     }
     if (r === 'cancel' || (bulkCancelRequested && r != null && r !== 'skip' && !isBizOk(r))) {
       // 待っている間に中断された（この項目は未処理）
@@ -2082,11 +2103,17 @@ async function runBulk(label, items, task, keyOf) {
       res.reasons.set(reason, (res.reasons.get(reason) || 0) + 1);
     }
     updateProgress(i + 1, items.length, res);
+    // 再試行しても失敗した＝制限が解けていない。残りを送り続けても失敗するだけ（制限が長引く
+    // おそれもある）なので、残りは送らずに止める。
+    if (retryFailed && i + 1 < items.length) {
+      res.limited = items.length - i - 1;
+      break;
+    }
   }
   // 呼び出し側が続けて一覧を取り直すため、その間も分かるように表示する（結果は reportBulk）
   $('btnProgCancel').disabled = true;
   if (!res.aborted) {
-    const done = items.length - res.canceled;
+    const done = items.length - res.canceled - res.limited;
     updateProgress(
       done,
       items.length,
@@ -2106,9 +2133,14 @@ function reportBulk(label, res, skipLabel) {
   if (res.skip) parts.push(`${skipLabel || '対象なし'} ${res.skip} 件`);
   if (res.canceled) parts.push(`中断 ${res.canceled} 件（未処理）`);
   if (res.aborted) parts.push(`未処理 ${res.aborted} 件（ログイン切れ等で中断）`);
+  if (res.limited)
+    parts.push(
+      `未処理 ${res.limited} 件（再試行しても失敗したため中断。しばらく待ってから再実行してください）`
+    );
   // 処理後の一覧の取り直しに失敗した場合、一覧は処理前のまま（削除済みの行が残る等）なので必ず知らせる
   if (res.reloadFailed) parts.push('一覧の再取得に失敗（「↻ 一覧更新」を押してください）');
-  const bad = res.ng > 0 || res.aborted > 0 || res.canceled > 0 || res.reloadFailed;
+  const bad =
+    res.ng > 0 || res.aborted > 0 || res.canceled > 0 || res.limited > 0 || res.reloadFailed;
   const summary = `${label}: ${parts.join(' / ')}`;
   if (!isOpen('progressModal')) {
     // ログイン切れ等でポップアップが閉じられた（ステータス欄の「ログインが必要です」は残す）
@@ -2725,7 +2757,7 @@ async function doBulkCopyInner() {
           sonotaHokoku: r['その他報告事項'] || ''
         },
         '一括コピー',
-        true
+        'all'
       ),
     ({ r, d }) => `${r['日報コード']}→${d}`
   );
@@ -2751,7 +2783,7 @@ async function doBulkDeleteInner() {
   const res = await runBulk(
     '一括削除',
     sortJobsByDate(rows, (r) => r['日付']),
-    (r) => callApi('deleteData', { nippoCd: r['日報コード'] }, '一括削除', true),
+    (r) => callApi('deleteData', { nippoCd: r['日報コード'] }, '一括削除', 'all'),
     (r) => String(r['日報コード'])
   );
   if (!res.aborted) res.reloadFailed = !(await loadList()); // 中断（ログイン切れ等）時は取り直さない
@@ -3149,7 +3181,7 @@ async function doBulkChangeInner() {
   const res = await runBulk(
     '一括変更',
     sortJobsByDate(jobs, (body) => body.date),
-    (body) => callApi('registData', body, '一括変更', true),
+    (body) => callApi('registData', body, '一括変更', 'all'),
     (body) => String(body.nippoCd)
   );
   res.skip = unchanged;
@@ -3241,7 +3273,7 @@ async function doBulkReplaceInner() {
   const res = await runBulk(
     '一括置換',
     sortJobsByDate(jobs, (body) => body.date),
-    (body) => callApi('registData', body, '一括置換', true),
+    (body) => callApi('registData', body, '一括置換', 'all'),
     (body) => String(body.nippoCd)
   );
   res.skip = unchanged;
@@ -3531,7 +3563,7 @@ async function doBulkIndivInner() {
     '個別変更',
     sortJobsByDate(jobs, (j) => j.body.date),
     async (j) => {
-      const r = await callApi('registData', j.body, '個別変更', true);
+      const r = await callApi('registData', j.body, '個別変更', 'all');
       if (isBizOk(r)) {
         j.e.sentBody = j.body; // 成功した行は以後「変更なし」扱い
         markIndivSaved(j.e); // 薄赤を外し、未反映の行だけが薄赤で残るようにする
