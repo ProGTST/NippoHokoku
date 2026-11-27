@@ -2983,16 +2983,26 @@ function openTantoModal() {
 }
 // 担当者マスタの在籍者全件（開いたときに1回だけ取得し、以後の絞り込みは画面側で即時に行う）
 let tantoAllRows = [];
+let tantoLoaded = false; // 全件の取得に成功したか（取得中・失敗時は絞り込みで表示を上書きしない）
 // 担当者マスタを全件取得し、部門プルダウンを作って一覧を表示する。
 // 検索ボタンは置かず、文字入力・部門選択のたびに filterTantoList で即時に絞り込む
 // （入力のたびに rkanri へ問い合わせない。在籍者は 75 件程度で全件を持っても軽い）。
 async function loadTantoList() {
   const seq = ++tantoSeq;
   tantoAllRows = [];
+  tantoLoaded = false;
+  // 前回開いたときの一覧を残さない（取得中・失敗時に古い一覧が見えて状態と食い違うのを防ぐ）
+  $('tantoTable').innerHTML = '<div class="empty-list muted">読み込み中…</div>';
   const r = await callApi('getTantoList', { svalue: '' }, '担当者一覧取得');
   if (seq !== tantoSeq) return; // 後から出した要求がある（古い応答は捨てる）
-  if (!r || !Array.isArray(r.data)) return;
+  if (!r || !Array.isArray(r.data)) {
+    // 失敗の理由は callApi がトースト・ステータス欄に出している。一覧にも取得できなかったことを示す
+    $('tantoTable').innerHTML =
+      '<div class="empty-list muted">担当者一覧を取得できませんでした。閉じて開き直してください。</div>';
+    return;
+  }
   tantoAllRows = r.data;
+  tantoLoaded = true;
   fillTantoBumonOptions(tantoAllRows);
   filterTantoList();
 }
@@ -3000,6 +3010,7 @@ async function loadTantoList() {
 // 部門（名称2。未所属＝部門が空）で絞り込んで表示する。部門は API では絞り込めないため
 // （getTantoList は部門パラメータを無視する。実測確認済み）、もともと画面側で絞り込んでいる。
 function filterTantoList() {
+  if (!tantoLoaded) return; // 取得中・取得失敗の表示を「該当データがありません」で上書きしない
   const q = getVal('svalue2').trim().toLowerCase();
   const bumon = getVal('tantoBumon');
   const rows = tantoAllRows.filter((x) => {
@@ -3435,6 +3446,19 @@ function wire() {
   // カレンダーで日付が変わったら合計を取り直す（キー入力は禁止のため change だけで拾える。
   // input と二重に登録すると1回の変更で2回通信してしまう）
   $('date').addEventListener('change', () => doTotal());
+  // 作業時間（数値入力）は、フォーカス中にマウスホイールを回すと Chromium が値を増減してしまい、
+  // 画面をスクロールしたつもりで作業時間が変わる。ホイールでは値を変えず、モーダルの本文だけを
+  // スクロールさせる（増減はスピンボタンと上下キーで行う）。
+  $('sagyozikan').addEventListener(
+    'wheel',
+    (e) => {
+      if (document.activeElement !== e.currentTarget) return; // フォーカス外では値は変わらない
+      e.preventDefault();
+      const body = /** @type {any} */ (e.currentTarget).closest('.modal-body');
+      if (body) body.scrollBy(0, e.deltaY);
+    },
+    { passive: false }
+  );
   $('btnDatePrev').addEventListener('click', () => shiftRegDate(-1));
   $('btnDateNext').addEventListener('click', () => shiftRegDate(1));
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
