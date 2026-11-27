@@ -3,6 +3,8 @@ export {};
 
 declare global {
   interface Window {
+    // 更新内容のお知らせ（src/release-notes.js。新しいバージョンが先頭）
+    RELEASE_NOTES: { version: string; date: string; items: string[] }[];
     appInfo: {
       name: string;
       targetUrl: string;

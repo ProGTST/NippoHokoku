@@ -137,6 +137,58 @@ body.app .tanto-group {
 .topbar button.ghost:hover {
   background: rgba(255, 255, 255, 0.24);
 }
+/* ヘッダーのベルマーク（更新内容のお知らせ）。未読の新しい更新があると右上に赤い点を出す */
+.topbar button.notice-btn {
+  position: relative;
+  padding: 4px 8px;
+  line-height: 0;
+}
+.notice-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.notice-badge {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 1px solid var(--on-dark);
+}
+.notice-badge.hidden {
+  display: none;
+}
+/* お知らせ一覧（バージョンごとに見出し＋箇条書き） */
+.notice-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  line-height: 1.7;
+}
+.notice-ver {
+  margin: 12px 0 2px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.notice-ver:first-child {
+  margin-top: 0;
+}
+.notice-ver .notice-date {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.notice-ver .notice-current {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ok-d);
+}
+.notice-list ul {
+  margin: 0;
+  padding-left: 20px;
+}
 .dot {
   width: 9px;
   height: 9px;
@@ -532,6 +584,24 @@ input[readonly] {
   width: 150px;
   min-width: 150px;
   flex: 0 0 auto;
+}
+/* 日報登録の日付: 左右の◀▶（1日ずつ移動）と曜日（土=青、日祝=赤） */
+button.date-shift {
+  padding: 5px 7px;
+}
+.date-dow {
+  min-width: 2.6em;
+  font-weight: 600;
+}
+.date-dow.dow-sat {
+  color: var(--primary-d);
+}
+.date-dow.dow-hol {
+  color: var(--danger);
+}
+/* 作業時間（0.25 時間＝15分単位のスピンボタン付き） */
+input.hours-input {
+  width: 6.5em;
 }
 input.grow {
   flex: 1;
@@ -940,9 +1010,45 @@ body.view-only .tbl-getNippoList td[data-col='案件コード'] {
    width/min/max を揃えて内容に依らず一定幅にする。残り列（その他報告事項）が可変幅で残りを埋める。
    日付は列ではなく日付ヘッダー行（tr.date-row）で表示する。 */
 .tbl-getNippoList [data-col='案件コード'] {
-  width: 85px;
-  min-width: 85px;
-  max-width: 85px;
+  width: 100px; /* 右端のフィルターボタン（20px）分を含む */
+  min-width: 100px;
+  max-width: 100px;
+}
+/* 案件コードセル右端のフィルターボタン（押すとその案件コードで絞り込み）。
+   セルは sticky（位置指定あり）なので、ボタンはセル基準で右端に置く。 */
+.tbl-getNippoList td[data-col='案件コード'] {
+  padding-right: 22px;
+}
+button.cell-filter {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+  line-height: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0.55;
+  cursor: pointer;
+}
+button.cell-filter svg {
+  width: 12px;
+  height: 12px;
+}
+tbody tr:hover button.cell-filter {
+  opacity: 1;
+}
+button.cell-filter:hover {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--panel);
+}
+button.cell-filter:active {
+  transform: translateY(-50%);
 }
 .tbl-getNippoList [data-col='取引先名'] {
   width: 220px;

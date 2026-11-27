@@ -657,6 +657,8 @@ function startLocalServer() {
         return serveLocalFile(res, 'index.html');
       if (req.method === 'GET' && pathname === '/renderer.js')
         return serveLocalFile(res, 'renderer.js');
+      if (req.method === 'GET' && pathname === '/release-notes.js')
+        return serveLocalFile(res, 'release-notes.js');
       if (req.method === 'GET' && pathname === '/styles.css')
         return serveLocalFile(res, 'styles.css');
       if (req.method === 'GET' && pathname === '/icon.png') return serveLocalFile(res, 'icon.png');

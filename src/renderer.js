@@ -1295,6 +1295,8 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
       cell.className = 'cell';
       cell.textContent = v == null ? '' : String(v);
       td.appendChild(cell);
+      // 日報一覧の案件コードは、セル右端のフィルターボタンでその案件コードに絞り込める
+      if (groupByDate && c === '案件コード' && v) td.appendChild(buildCodeFilterButton(String(v)));
       if (typeof v === 'number' || /時間|作業時間/.test(c)) td.className = 'num';
       tr.appendChild(td);
     });
@@ -1386,6 +1388,26 @@ function applyListFilter() {
 }
 
 // 絞り込みツールバーの条件をすべてクリアして再フィルタする。
+// 案件コードセルのフィルターボタン。押すと絞り込み条件の「案件コード」にその値を入れて絞り込む
+// （行クリックの編集・選択は発火させない）。参照のみモードでも使える（表示の絞り込みのみのため）。
+function buildCodeFilterButton(code) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'cell-filter';
+  b.title = `案件コード「${code}」で絞り込み`;
+  b.setAttribute('aria-label', b.title);
+  b.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/></svg>';
+  b.addEventListener('mousedown', (e) => e.stopPropagation());
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setVal('fCode', code);
+    applyListFilter();
+    toast(`案件コード「${code}」で絞り込みました（「クリア」で解除）`, 'ok');
+  });
+  return b;
+}
+
 function clearFieldFilters() {
   ['fCode', 'fTorihiki', 'fAnken', 'fNaiyo', 'fShinchoku', 'fSonota'].forEach((id) =>
     setVal(id, '')
@@ -1827,6 +1849,8 @@ function checkError() {
   if (getVal('date').trim() === '') return '日付が未入力です';
   if (isNaN(new Date(getVal('date')).getDate())) return '日付が不正です';
   if (getVal('sagyoNaiyo').trim() === '') return '作業内容が未入力です';
+  // 数値入力欄に数値でない文字を入れると value は空になるため、未入力と区別して「不正」とする
+  if ($('sagyozikan').validity && $('sagyozikan').validity.badInput) return '作業時間が不正です';
   if (getVal('sagyozikan').trim() === '') return '作業時間が未入力です';
   if (isNaN(Number(getVal('sagyozikan')))) return '作業時間が不正です';
   if (getVal('sagyoShinchoku').trim() === '') return '作業進捗が未入力です';
@@ -1970,10 +1994,35 @@ async function doDeleteInner() {
   }
 }
 
+// 日報登録の日付の右に曜日を表示する（土=青、日曜・祝日=赤。日報一覧の日付ヘッダー行と同じ判定）。
+function updateDateDow() {
+  const el = $('dateDow');
+  const n = dateNum(getVal('date'));
+  if (!n) {
+    el.textContent = '';
+    el.className = 'date-dow';
+    return;
+  }
+  el.textContent = `(${WEEKDAYS[numToDate(n).getDay()]})`;
+  el.className = ('date-dow ' + dowClass(n)).trim();
+  el.title = jpHolidays(Math.floor(n / 10000)).has(n) ? '祝日' : '';
+}
+// 日報登録の日付を delta 日ずらす（◀▶ボタン）。日付が空なら今日を基準にする。
+function shiftRegDate(delta) {
+  const n = dateNum(getVal('date')) || dateToNum(new Date());
+  const d = numToDate(n);
+  d.setDate(d.getDate() + delta);
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  setVal('date', `${d.getFullYear()}-${mo}-${da}`);
+  doTotal();
+}
+
 // 合計作業時間を取得して表示（登録モーダルを開くと自動実行。トーストは抑制）。
 // 日付を続けて変えた時に古い要求の応答で上書きしないよう、最新の要求の応答だけ反映する。
 let totalSeq = 0;
 async function doTotal() {
+  updateDateDow(); // 日付を変える経路は必ず合計の取り直しを通るので、ここで曜日も更新する
   const seq = ++totalSeq;
   $('totalVal').textContent = '-';
   const d = toApiDate(getVal('date'));
@@ -2875,8 +2924,9 @@ function openAnkenModal(target, entry) {
   $('svalue').focus();
   searchAnken(false); // 初期表示は履歴を実行して表示（検索ボタンは再検索用）
 }
-// 案件・担当者検索の要求連番。開いた直後の初期表示（履歴／全件）の応答が、続けて押した
-// 検索の結果を後から上書きしないよう、最新の要求の応答だけを描画する。
+// 案件・担当者の取得の要求連番。案件は開いた直後の初期表示（履歴）の応答が、続けて押した
+// 検索の結果を後から上書きしないよう、担当者は開き直したときに前回の応答を描画しないよう、
+// 最新の要求の応答だけを描画する。
 let ankenSeq = 0;
 let tantoSeq = 0;
 async function searchAnken(withSvalue) {
@@ -2929,20 +2979,38 @@ function openTantoModal() {
   setVal('tantoBumon', '');
   openModal('tantoModal');
   $('svalue2').focus();
-  searchTantoList(); // 初期表示は全件（svalue 空）を実行して表示（検索ボタンは再検索用）
+  loadTantoList();
 }
-// 担当者マスタを検索して一覧を描画する。部門（名称2）は API では絞り込めない
-// （getTantoList は部門パラメータを無視する。実測確認済み）ため、取得結果を画面側で絞り込む。
-// 検索文字が空（＝在籍者全件）の結果から部門プルダウンの選択肢を作り直す。
-async function searchTantoList() {
+// 担当者マスタの在籍者全件（開いたときに1回だけ取得し、以後の絞り込みは画面側で即時に行う）
+let tantoAllRows = [];
+// 担当者マスタを全件取得し、部門プルダウンを作って一覧を表示する。
+// 検索ボタンは置かず、文字入力・部門選択のたびに filterTantoList で即時に絞り込む
+// （入力のたびに rkanri へ問い合わせない。在籍者は 75 件程度で全件を持っても軽い）。
+async function loadTantoList() {
   const seq = ++tantoSeq;
-  const svalue = getVal('svalue2');
-  const r = await callApi('getTantoList', { svalue }, '担当者検索');
+  tantoAllRows = [];
+  const r = await callApi('getTantoList', { svalue: '' }, '担当者一覧取得');
   if (seq !== tantoSeq) return; // 後から出した要求がある（古い応答は捨てる）
   if (!r || !Array.isArray(r.data)) return;
-  if (svalue.trim() === '') fillTantoBumonOptions(r.data);
+  tantoAllRows = r.data;
+  fillTantoBumonOptions(tantoAllRows);
+  filterTantoList();
+}
+// 取得済みの全件を、検索テキスト（担当者コード・担当者名の部分一致。大文字小文字は区別しない）と
+// 部門（名称2。未所属＝部門が空）で絞り込んで表示する。部門は API では絞り込めないため
+// （getTantoList は部門パラメータを無視する。実測確認済み）、もともと画面側で絞り込んでいる。
+function filterTantoList() {
+  const q = getVal('svalue2').trim().toLowerCase();
   const bumon = getVal('tantoBumon');
-  const rows = bumon ? r.data.filter((x) => tantoBumonOf(x) === bumon) : r.data;
+  const rows = tantoAllRows.filter((x) => {
+    if (bumon && tantoBumonOf(x) !== bumon) return false;
+    if (!q) return true;
+    return [x['key'], x['名称1']].some((v) =>
+      String(v || '')
+        .toLowerCase()
+        .includes(q)
+    );
+  });
   renderTableInto($('tantoTable'), 'getTantoList', rows, pickTanto);
 }
 // 部門プルダウンの「未所属」の値（部門名と重ならない固定値）。部門（名称2）が空の担当者を表す。
@@ -3024,8 +3092,64 @@ function updateBtns() {
 }
 
 // フッターに現在のバージョンを表示する（更新ボタンの右／ログイン・日報一覧の両方）。
+// ---- 更新内容のお知らせ（ヘッダーのベルマーク） ------------------------------
+// 内容は release-notes.js の window.RELEASE_NOTES。最新の更新内容をまだ開いていなければベルに赤い点を出す。
+// 既読の記録はこの端末のブラウザ保存領域（localStorage）に持つ（使えない環境では毎回赤い点を出す）。
+const NOTICE_SEEN_KEY = 'nippo.noticeSeenVersion';
+function latestNoticeVersion() {
+  return (window.RELEASE_NOTES || []).length ? window.RELEASE_NOTES[0].version : '';
+}
+function readNoticeSeen() {
+  try {
+    return localStorage.getItem(NOTICE_SEEN_KEY) || '';
+  } catch (e) {
+    console.error('[nippo] お知らせの既読情報を読めません:', (e && e.message) || e);
+    return '';
+  }
+}
+function updateNoticeBadge() {
+  const latest = latestNoticeVersion();
+  $('noticeBadge').classList.toggle('hidden', !latest || readNoticeSeen() === latest);
+}
+function openNotice() {
+  const list = $('noticeList');
+  list.innerHTML = '';
+  (window.RELEASE_NOTES || []).forEach((n) => {
+    const h = document.createElement('div');
+    h.className = 'notice-ver';
+    h.textContent = `v${n.version}`;
+    const d = document.createElement('span');
+    d.className = 'notice-date';
+    d.textContent = n.date;
+    h.appendChild(d);
+    if (currentVersion && n.version === currentVersion) {
+      const c = document.createElement('span');
+      c.className = 'notice-current';
+      c.textContent = 'ご利用中';
+      h.appendChild(c);
+    }
+    const ul = document.createElement('ul');
+    n.items.forEach((t) => {
+      const li = document.createElement('li');
+      li.textContent = t;
+      ul.appendChild(li);
+    });
+    list.appendChild(h);
+    list.appendChild(ul);
+  });
+  openModal('noticeModal');
+  try {
+    localStorage.setItem(NOTICE_SEEN_KEY, latestNoticeVersion());
+  } catch (e) {
+    console.error('[nippo] お知らせの既読情報を保存できません:', (e && e.message) || e);
+  }
+  updateNoticeBadge();
+}
+
+let currentVersion = ''; // 現在のバージョン（お知らせで「ご利用中」を示すため）
 function setVersionLabel(v) {
   if (!v) return;
+  currentVersion = String(v);
   ['verLabel', 'verLabelLogin'].forEach((id) => {
     const el = $(id);
     if (el) el.textContent = 'v' + v;
@@ -3235,6 +3359,10 @@ function wire() {
   $('btnInfo').addEventListener('click', () => openModal('infoModal'));
   $('btnInfoLogin').addEventListener('click', () => openModal('infoModal'));
   $('btnCloseInfo').addEventListener('click', () => closeModal('infoModal'));
+  // 更新内容のお知らせ（ヘッダーのベルマーク）
+  $('btnNotice').addEventListener('click', () => openNotice());
+  $('btnCloseNotice').addEventListener('click', () => closeModal('noticeModal'));
+  updateNoticeBadge();
   $('btnNew').addEventListener('click', () => openNewModal());
   $('btnBulkCopy').addEventListener('click', () => openBulkCopy());
   $('btnBulkDelete').addEventListener('click', () => doBulkDelete());
@@ -3307,6 +3435,8 @@ function wire() {
   // カレンダーで日付が変わったら合計を取り直す（キー入力は禁止のため change だけで拾える。
   // input と二重に登録すると1回の変更で2回通信してしまう）
   $('date').addEventListener('change', () => doTotal());
+  $('btnDatePrev').addEventListener('click', () => shiftRegDate(-1));
+  $('btnDateNext').addEventListener('click', () => shiftRegDate(1));
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());
 
   // 案件モーダル
@@ -3315,7 +3445,9 @@ function wire() {
   $('btnCloseAnken').addEventListener('click', () => closeModal('ankenModal'));
 
   // 担当者モーダル
-  $('btnTantoDoSearch').addEventListener('click', () => searchTantoList());
+  // 担当者マスタ一覧: 検索ボタンは無く、入力・選択のたびに即時に絞り込む
+  $('svalue2').addEventListener('input', () => filterTantoList());
+  $('tantoBumon').addEventListener('change', () => filterTantoList());
   $('btnCloseTanto').addEventListener('click', () => closeModal('tantoModal'));
 
   // 担当変更の参照許可確認モーダル（担当者選択後に表示）
