@@ -1053,9 +1053,19 @@ function groupRowsByDate(rows) {
 // 集計は絞り込み条件に関係なくその日の全日報（allNippoRows）で行う（1日の合計時間を正しく見せるため）。
 // 絞り込みで一部だけ表示されている場合は件数を「表示/全体」で示す。
 // dayAll: その日の全日報 / dayShown: その日の表示中（絞り込み後）の日報。
-function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGroups, onSelChange) {
+// todayNum: 描画時の今日（yyyymmdd。一覧の描画で1回だけ求めて渡す）。
+function buildDateHeaderRow(
+  dn,
+  dayAll,
+  dayShown,
+  colCount,
+  selectable,
+  dateGroups,
+  onSelChange,
+  todayNum
+) {
   const total = dayAll.reduce((s, r) => s + hoursOf(r), 0);
-  const future = dn > dateToNum(new Date()); // 今日より未来（予定）
+  const future = dn > todayNum; // 今日より未来（予定）
 
   const tr = document.createElement('tr');
   tr.className = future ? 'date-row is-future' : 'date-row';
@@ -1265,6 +1275,9 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
   // 日付ごとの行を1回だけ振り分けておく（日付行ごとに全件を走査しないため）
   const shownByDate = groupByDate ? groupRowsByDate(data) : null;
   const allByDate = groupByDate ? groupRowsByDate(allNippoRows) : null;
+  // 「今日より未来（予定）」の判定に使う今日。日付をまたいだら描き直せるよう覚えておく。
+  const todayNum = dateToNum(new Date());
+  if (groupByDate) listDrawnDay = todayNum;
   let prevDate = null;
   data.forEach((rowObj, index) => {
     if (groupByDate) {
@@ -1279,7 +1292,8 @@ function renderTableInto(container, endpoint, data, onRowClick, selectable) {
             cols.length,
             selectable,
             dateGroups,
-            syncChecks
+            syncChecks,
+            todayNum
           )
         );
       }
@@ -1404,6 +1418,15 @@ function matchesFieldFilters(r) {
     exact('作業進捗', 'fShinchoku') &&
     partial('その他報告事項', 'fSonota')
   );
+}
+
+// 日報一覧の日付ヘッダー行を描いたときの「今日」（yyyymmdd。0=未描画）
+let listDrawnDay = 0;
+// アプリを開いたまま（タスクトレイ常駐など）日付をまたいだら、日報一覧を描き直して「予定」表示
+// （今日より未来の日付行）を今日の日付で判定し直す。絞り込み条件・選択はそのまま残す。
+function redrawListIfDayChanged() {
+  if (!listDrawnDay || dateToNum(new Date()) === listDrawnDay) return;
+  renderTableInto($('listTable'), 'getNippoList', currentNippoList, openEditModal, true);
 }
 
 // 表示モード（全件 / 指定月）と絞り込み条件で allNippoRows を絞り込み、テーブルを再描画する。
@@ -3853,6 +3876,12 @@ function wire() {
   makePicker($('bulkDateFrom'), 'date');
   makePicker($('bulkDateTo'), 'date');
   setupHoursInput($('sagyozikan'));
+
+  // 日付をまたいでから画面に戻ったら、日報一覧の「予定」表示を描き直す
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') redrawListIfDayChanged();
+  });
+  window.addEventListener('focus', () => redrawListIfDayChanged());
 
   // 認証画面
   $('btnEnterApp').addEventListener('click', () => tryEnter(false));
