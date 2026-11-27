@@ -3673,18 +3673,27 @@ function openNotice() {
     if (currentVersion && n.version === currentVersion) chip('chip-using', 'ご利用中');
     const ul = document.createElement('ul');
     ul.className = 'notice-items';
-    n.items.forEach((it) => {
-      const li = document.createElement('li');
-      const tag = document.createElement('span');
-      const type = NOTICE_TAGS[it.type] ? it.type : 'improve';
-      tag.className = `notice-tag tag-${type}`;
-      tag.textContent = NOTICE_TAGS[type];
-      const text = document.createElement('span');
-      text.textContent = it.text;
-      li.appendChild(tag);
-      li.appendChild(text);
-      ul.appendChild(li);
-    });
+    // 種類の順（新機能→改善→修正）に並べる。同じ種類の中は release-notes.js に書いた順
+    // （関連する項目のまとまり→利用者が実感しやすい順→実装順で並べておく）のまま（安定ソート）。
+    const typeOrder = Object.keys(NOTICE_TAGS);
+    const rank = (it) => {
+      const i = typeOrder.indexOf(it.type);
+      return i < 0 ? typeOrder.indexOf('improve') : i; // 不明な種類は「改善」扱い（表示と同じ）
+    };
+    [...n.items]
+      .sort((a, b) => rank(a) - rank(b))
+      .forEach((it) => {
+        const li = document.createElement('li');
+        const tag = document.createElement('span');
+        const type = NOTICE_TAGS[it.type] ? it.type : 'improve';
+        tag.className = `notice-tag tag-${type}`;
+        tag.textContent = NOTICE_TAGS[type];
+        const text = document.createElement('span');
+        text.textContent = it.text;
+        li.appendChild(tag);
+        li.appendChild(text);
+        ul.appendChild(li);
+      });
     card.appendChild(head);
     card.appendChild(ul);
     list.appendChild(card);
