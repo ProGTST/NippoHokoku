@@ -372,9 +372,22 @@ function setStatus(text) {
   $('outStatus').textContent = text;
 }
 
+// 対象ページ（rkanri の日報画面）か。URL 文字列の部分一致ではなくオリジンとパスで判定する
+// （ログイン画面の戻り先パラメータ等に rkanri の URL が含まれていても対象外とするため。
+//  main.js の startsWith(RK_ORIGIN) と同じ基準）。
+const RK_TARGET_ORIGIN = 'https://rkanri.genech.co.jp';
+const RK_TARGET_PATH = '/kanri/nippo';
 function isTargetUrl(u) {
   u = u || (rk.getURL && rk.getURL()) || '';
-  return /rkanri\.genech\.co\.jp\/kanri\/nippo/.test(u);
+  try {
+    const x = new URL(u);
+    return (
+      x.origin === RK_TARGET_ORIGIN &&
+      (x.pathname === RK_TARGET_PATH || x.pathname.startsWith(RK_TARGET_PATH + '/'))
+    );
+  } catch (e) {
+    return false; // 空・不正な URL は対象外
+  }
 }
 
 // ---- 遷移マスク（既存システム画面を隠す） --------------------------------
@@ -404,7 +417,8 @@ function enterApp() {
   updateHeaderTitle();
   alignFilterColumns(); // メイン画面表示後にレイアウトが確定してから列幅を合わせる
   checkForUpdate(); // 日報一覧の初期表示時に更新有無をチェック
-  restoreSuspendedRegist();
+  // ログイン切れで閉じた日報登録の開き直し（restoreSuspendedRegist）は、◀▶ の基準を新しい
+  // 一覧で決めるため、一覧を描画した後に enterWithTanto から呼ぶ
 }
 
 // ---- ログイン切れ時のモーダルの扱い ---------------------------------------
@@ -423,6 +437,11 @@ function restoreSuspendedRegist() {
   const s = suspendedRegist;
   suspendedRegist = null;
   if (!s || s.tanto !== getVal('tanto')) return;
+  // ◀▶（前後の日報へ移動）の基準を、取り直した一覧上の位置に合わせ直す
+  // （ログイン切れの間に一覧が変わっていると、前の位置のままでは別の日報が開くため）
+  const cd = getVal('nippoCd').trim();
+  currentEditIndex = cd ? currentNippoList.findIndex((r) => r['日報コード'] === cd) : -1;
+  updateEditNav();
   openModal('registModal');
   toast('ログイン前に入力していた日報登録を再表示しました。内容を確認して登録してください。', 'ok');
 }
@@ -506,6 +525,7 @@ async function enterWithTanto(code, name) {
     if (IS_BROWSER) setConn('ok', '接続OK');
     enterApp();
     showNippoList(r.data);
+    restoreSuspendedRegist();
     return true;
   }
   return false;
@@ -1842,6 +1862,21 @@ function playCopyHop(onReturn) {
   );
 }
 
+// 作業時間の入力チェック（日報登録・一括変更・個別変更で共用）。正常なら null。
+// 範囲は 0〜24（新仕様.md §5.3）。数値入力欄の min/max はスピンボタンの範囲を決めるだけで、
+// 直接入力した範囲外の値（30、-1 等）は送信できてしまうためここで止める。
+const HOURS_MIN = 0;
+const HOURS_MAX = 24;
+function hoursInputError(v) {
+  const s = String(v ?? '').trim();
+  if (s === '') return '作業時間が未入力です';
+  const h = Number(s);
+  if (isNaN(h)) return '作業時間が不正です';
+  if (h < HOURS_MIN || h > HOURS_MAX)
+    return `作業時間は${HOURS_MIN}〜${HOURS_MAX}の範囲で入力してください`;
+  return null;
+}
+
 // 現行仕様の checkError() 相当
 function checkError() {
   if (getVal('regTanto').trim() === '') return '担当者が未入力です';
@@ -1851,8 +1886,8 @@ function checkError() {
   if (getVal('sagyoNaiyo').trim() === '') return '作業内容が未入力です';
   // 数値入力欄に数値でない文字を入れると value は空になるため、未入力と区別して「不正」とする
   if ($('sagyozikan').validity && $('sagyozikan').validity.badInput) return '作業時間が不正です';
-  if (getVal('sagyozikan').trim() === '') return '作業時間が未入力です';
-  if (isNaN(Number(getVal('sagyozikan')))) return '作業時間が不正です';
+  const hourErr = hoursInputError(getVal('sagyozikan'));
+  if (hourErr) return hourErr;
   if (getVal('sagyoShinchoku').trim() === '') return '作業進捗が未入力です';
   if (getVal('sonotaHokoku').trim() === '') return 'その他報告事項が未入力です';
   if (getVal('sagyoShinchoku') !== '順調' && getVal('okureHokoku').trim() === '')
@@ -2462,8 +2497,8 @@ function bulkChangeError(after, isTarget, rows) {
   if (isTarget('anken') && after.ankenCd.trim() === '') return '案件が未入力です';
   if (isTarget('sagyoNaiyo') && after.sagyoNaiyo.trim() === '') return '作業内容が未入力です';
   if (isTarget('sagyozikan')) {
-    if (after.sagyozikan.trim() === '') return '作業時間が未入力です';
-    if (isNaN(Number(after.sagyozikan))) return '作業時間が不正です';
+    const hourErr = hoursInputError(after.sagyozikan);
+    if (hourErr) return hourErr;
   }
   if (isTarget('sagyoShinchoku') && after.sagyoShinchoku.trim() === '')
     return '作業進捗が未入力です';
@@ -2798,6 +2833,38 @@ function markIndivSaved(e) {
   e.ankenCd.classList.remove('bi-changed');
 }
 
+// registData 送信ボディのキー → 日報一覧行(DB)のキー。
+const BODY_TO_ROW = {
+  date: '日付',
+  ankenCd: '案件コード',
+  torihikisakiMei: '取引先名',
+  ankenMei: '案件名',
+  sagyoNaiyo: '作業内容',
+  sagyozikan: '作業時間',
+  sagyoShinchoku: '作業進捗',
+  okureHokoku: '遅れ報告',
+  sonotaHokoku: 'その他報告事項'
+};
+// 個別変更で送信に成功した内容（sentBody）を一括変更の対象行（bulkRows）へ反映し、
+// 一括変更タブの変更前表示を作り直す。一部失敗でモーダルを開いたままにしたとき、
+// 一括変更・一括置換タブが古い値で送信して成功済みの個別変更を元に戻さないようにする。
+function applyIndivSentToBulkRows() {
+  const sent = new Map();
+  indivEls.forEach((e) => {
+    if (e.sentBody) sent.set(e.nippoCd, e.sentBody);
+  });
+  bulkRows = bulkRows.map((r) => {
+    const b = sent.get(r['日報コード'] || '');
+    if (!b) return r;
+    const nr = { ...r };
+    Object.keys(BODY_TO_ROW).forEach((k) => {
+      nr[BODY_TO_ROW[k]] = b[k];
+    });
+    return nr;
+  });
+  buildBulkChangeGrid();
+}
+
 // 個別変更の全幅テキスト段（ラベル + テキストエリアを colspan で1行に）。
 /** @param {string} label @param {any} textarea */
 function indivTextRow(label, textarea) {
@@ -2857,8 +2924,8 @@ function indivRowError(e) {
   if (b.date.trim() === '') return '日付が未入力です';
   if (isNaN(new Date(e.date.value).getDate())) return '日付が不正です';
   if (b.sagyoNaiyo.trim() === '') return '作業内容が未入力です';
-  if (b.sagyozikan.trim() === '') return '作業時間が未入力です';
-  if (isNaN(Number(b.sagyozikan))) return '作業時間が不正です';
+  const hourErr = hoursInputError(b.sagyozikan);
+  if (hourErr) return hourErr;
   if (b.sagyoShinchoku.trim() === '') return '作業進捗が未入力です';
   if (b.sonotaHokoku.trim() === '') return 'その他報告事項が未入力です';
   if (b.sagyoShinchoku !== '順調' && b.okureHokoku.trim() === '')
@@ -2910,6 +2977,9 @@ async function doBulkIndivInner() {
   );
   // 全件成功時のみ閉じる。失敗・中断がある場合は編集内容を残し、失敗行だけ再実行できるようにする
   if (!res.ng && !res.aborted) closeModal('bulkEditModal');
+  // モーダルを開いたままにする場合、一括変更・一括置換タブは bulkRows（開いた時点の値）から
+  // 全項目を送るため、成功した個別変更を反映しておかないと元の値に戻してしまう
+  else if (res.ok) applyIndivSentToBulkRows();
   if (!res.aborted) res.reloadFailed = !(await loadList());
   reportBulk('個別変更', res);
 }
@@ -3200,6 +3270,16 @@ async function checkForUpdate() {
   // （uiConfirm は textContent＋pre-wrap で表示するため改行は \n。HTML タグは使えない）
   if (updatePromptShown) return;
   updatePromptShown = true;
+  // 更新確認は数秒かかって返ることがある。その間に利用者が確認ダイアログや日報登録などの
+  // モーダルを開いていたら、確認ダイアログを出さずにトーストで案内する（uiConfirm は未回答の
+  // 確認を取り消して上書きするため、一括削除などの確認が更新の確認にすり替わってしまう）。
+  if (confirmResolver || mutationBusy || qs('.modal-overlay:not(.hidden)')) {
+    toast(
+      `新しいバージョン ${r.version || ''} があります。フッターの「⬆ 更新」から更新できます。`,
+      'ok'
+    );
+    return;
+  }
   if (
     await uiConfirm(
       `最新のバージョン ${r.version || ''} がアップロードされています。\n最新のバージョンにアップデートしますか？`
@@ -3272,8 +3352,14 @@ function wireUpdateStatus() {
       });
     } else if (s.state === 'downloaded') {
       toast('ダウンロード完了。再起動して更新します。', 'ok');
-      // main 側で二重実行を防ぐ（トレイからも同時に要求される場合がある）
-      window.appApi.quitAndInstall();
+      // main 側で二重実行を防ぐ（トレイからも同時に要求される場合がある）。
+      // 適用に失敗したらボタンを戻して知らせる（「⬆ 100%」のまま固まらないように）。
+      window.appApi.quitAndInstall().catch((e) => {
+        const msg = String((e && e.message) || e);
+        console.error('[nippo] 更新の適用に失敗:', msg);
+        toast('更新の適用に失敗しました: ' + clipText(msg), 'ng');
+        resetUpdateBtn();
+      });
     } else if (s.state === 'error') {
       // 更新確認（phase:'check'）の失敗は出さない。起動時の自動チェックやトレイ・ブラウザ版の確認が
       // GitHub の一時的な 5xx 等で失敗するたびに、無関係なエラーを出さないため（画面の確認結果は
