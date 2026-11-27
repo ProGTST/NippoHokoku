@@ -985,13 +985,17 @@ function getUpdater() {
     sendUpdateStatus({ state: 'downloaded', version: info && info.version })
   );
   // phase: ダウンロード中のエラーか（'download'）、更新確認のエラーか（'check'）を画面で区別する。
-  autoUpdater.on('error', (err) =>
+  autoUpdater.on('error', (err) => {
+    const message = String((err && err.message) || err);
+    // 適用（quitAndInstall）の最中のエラーは 'install'。electron-updater はダウンロード済みの
+    // インストーラが無い場合などに例外を投げず、この error イベントを同期で出すだけで終わる。
+    if (installing) installFailed = message;
     sendUpdateStatus({
       state: 'error',
-      phase: updateDownloading ? 'download' : 'check',
-      message: String((err && err.message) || err)
-    })
-  );
+      phase: installing ? 'install' : updateDownloading ? 'download' : 'check',
+      message
+    });
+  });
   return autoUpdater;
 }
 
@@ -1013,18 +1017,36 @@ async function downloadUpdateTracked() {
 // （autoInstallOnAppQuit=true）が install を再実行し、インストーラが 2 回起動してしまう。
 // トレイの「更新を確認」と画面の更新ボタンの両方から呼ばれ得るため、2 回目以降は何もしない。
 let installRequested = false;
+// 適用中（quitAndInstall の呼び出し中）か、その間に出たエラーの内容（'error' イベントのフェーズ判定用）
+let installing = false;
+let installFailed = '';
 function requestInstall() {
   if (installRequested) {
     console.log('[nippo] quitAndInstall は要求済みのため無視しました');
     return;
   }
   installRequested = true;
+  installing = true;
+  installFailed = '';
   try {
     getUpdater().quitAndInstall();
   } catch (e) {
     // 同期例外で終了処理に進まなかった場合は、やり直せるようにフラグを戻して呼び出し元へ伝える。
     installRequested = false;
     throw e;
+  } finally {
+    installing = false;
+  }
+  if (installFailed) {
+    // 例外にならない適用失敗（ダウンロードしたインストーラが消えている等）。アプリは終了しないので、
+    // 要求済みフラグを戻して再試行できるようにし、画面が無い（トレイ常駐）場合にも分かるよう OS 通知する。
+    // 画面へは 'error'（phase:'install'）で通知済み（ボタンを戻してトーストを出す）。
+    console.error('[nippo] 更新の適用に失敗:', installFailed);
+    installRequested = false;
+    notify(
+      '日報入力：更新を適用できませんでした',
+      'もう一度「更新を確認」または「⬆ 更新」からお試しください。'
+    );
   }
 }
 

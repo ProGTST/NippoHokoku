@@ -43,7 +43,7 @@ declare global {
         cb: (data: {
           state: 'available' | 'none' | 'downloading' | 'downloaded' | 'error';
           // state='error' のときだけ付く: 更新確認中（'check'）かダウンロード中（'download'）か
-          phase?: 'check' | 'download';
+          phase?: 'check' | 'download' | 'install';
           version?: string;
           percent?: number;
           message?: string;

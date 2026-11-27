@@ -3374,6 +3374,13 @@ function wireUpdateStatus() {
       // ダウンロード（phase:'download'）の失敗はボタンを元に戻すだけ。利用者への表示は、
       // 画面から始めた場合は startUpdateFlow、トレイから始めた場合は OS 通知で行う。
       if (s.phase === 'download') resetUpdateBtn();
+      // 適用（再起動してインストール）の失敗。例外にならずこの通知だけで終わるため、ここで
+      // ボタンを戻して知らせる（「⬆ 100%」のまま止まらないように。main 側で再試行可能に戻している）。
+      if (s.phase === 'install') {
+        console.error('[nippo] 更新の適用に失敗:', s.message || '');
+        toast('更新の適用に失敗しました。もう一度「⬆ 更新」を押してください。', 'ng');
+        resetUpdateBtn();
+      }
     }
   });
 }
