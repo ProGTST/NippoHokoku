@@ -1706,6 +1706,11 @@ button.cell-filter:active {
 .bi-table .bi-changed {
   background: var(--row-delay-warn);
 }
+/* 日付ボタンの変更表示はホバー中も消さない（ボタンのホバー時の背景より優先） */
+.bi-table button.date-pick.bi-changed,
+.bi-table button.date-pick.bi-changed:hover {
+  background: var(--row-delay-warn);
+}
 .bi-table button {
   padding: 3px 7px;
   flex: 0 0 auto;

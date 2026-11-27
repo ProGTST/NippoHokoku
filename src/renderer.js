@@ -2166,6 +2166,10 @@ function calPop() {
       e.preventDefault();
       e.stopPropagation();
       closePicker(true);
+    } else if (e.key === 'Tab') {
+      // カレンダーは body 直下にあり Tab の移動順が画面の並びと合わないため、Tab では閉じて
+      // 開いたボタンへフォーカスを戻す（既定の Tab 移動はボタンを起点に次／前の項目へ進む）
+      closePicker(true);
     } else if (onCell && e.key in moves) {
       e.preventDefault();
       moveCalFocus(moves[e.key]);
@@ -2176,9 +2180,25 @@ function calPop() {
     const t = /** @type {any} */ (e.target);
     if (pickerCur && !pop.contains(t) && !pickerCur.btn.contains(t)) closePicker(false);
   });
-  // スクロール・画面サイズの変更では、開いたボタンの位置に付いていく
+  // Tab 以外の経路（ウィンドウ外のクリック後の操作など）でフォーカスがカレンダーとボタンの外へ
+  // 出たら閉じる。日付の描き直しで一時的にフォーカスが外れる場合があるため、移動後に判定する。
+  pop.addEventListener('focusout', () => {
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (pickerCur && a && a !== document.body && !pop.contains(a) && a !== pickerCur.btn)
+        closePicker(false);
+    });
+  });
+  // 画面サイズの変更ではボタンの位置に付いていく。スクロールされたら閉じる（ボタンが見える範囲の
+  // 外へ出たまま、見えていない行の日付を選べてしまうのを防ぐ）。
   window.addEventListener('resize', placeCalPop);
-  document.addEventListener('scroll', placeCalPop, true);
+  document.addEventListener(
+    'scroll',
+    (e) => {
+      if (pickerCur && !pop.contains(/** @type {any} */ (e.target))) closePicker(false);
+    },
+    true
+  );
   return pop;
 }
 /** @param {Picker} p */
@@ -2284,7 +2304,7 @@ function renderCalendar() {
 }
 function focusCalCell() {
   const b = qs(`#calGrid button[data-n="${calFocus}"]`);
-  if (b) b.focus();
+  if (b) b.focus({ preventScroll: true }); // 背後の画面をスクロールさせない（スクロールで閉じるため）
 }
 // 表示ページ（日付=月、年月=年）を delta だけずらす（キー操作の選択位置は先頭に寄せる）
 function shiftCalPage(delta) {
@@ -2315,13 +2335,17 @@ function moveCalFocus(delta) {
   renderCalendar();
   focusCalCell();
 }
-// カレンダーで選んだ値を入れ、閉じてから変更イベントを送る
+// カレンダーで選んだ値を入れ、閉じてから変更イベントを送る。選択中の値をもう一度選んだときは
+// イベントを送らない（一括変更の変更対象チェックが付いて他の日報まで上書きされる・一覧の選択が外れる
+// のを防ぐ。ブラウザ標準の入力欄と同じく、値が変わったときだけ変更として扱う）。
 function pickCal(n) {
   const p = pickerCur;
   if (!p) return;
+  const before = p.input.value;
   p.input.value =
     p.kind === 'month' ? `${Math.floor(n / 100)}-${String(n % 100).padStart(2, '0')}` : numToIso(n);
   closePicker(true);
+  if (p.input.value === before) return;
   p.input.dispatchEvent(new Event('input', { bubbles: true }));
   p.input.dispatchEvent(new Event('change', { bubbles: true }));
 }
@@ -2363,6 +2387,8 @@ function stepHours(el, dir) {
       ? Math.floor(base * q + 1e-9) / q + HOURS_STEP
       : Math.ceil(base * q - 1e-9) / q - HOURS_STEP;
   next = Math.min(HOURS_MAX, Math.max(HOURS_MIN, next));
+  // 0 で下・24 で上に回したときなど値が変わらないときは何もしない（変更対象チェックを付けない）
+  if (String(el.value).trim() !== '' && Number(el.value) === next) return;
   el.value = String(next);
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
