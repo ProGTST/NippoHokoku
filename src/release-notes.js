@@ -7,6 +7,16 @@
 // renderer.js から参照できるよう window に公開する（型は types/globals.d.ts の Window.RELEASE_NOTES）。
 window.RELEASE_NOTES = [
   {
+    version: '0.1.24',
+    date: '2026-11-27',
+    items: [
+      { type: 'improve', text: 'マウスホイールで作業時間を15分ずつ増減できるように' },
+      { type: 'improve', text: '一括変更・個別変更の作業時間も15分単位のボタンで増減' },
+      { type: 'improve', text: '一括コピー・一括変更の日付もカレンダーで選べるように' },
+      { type: 'improve', text: '一覧の年月もカレンダーで選べるように' }
+    ]
+  },
+  {
     version: '0.1.23',
     date: '2026-11-27',
     items: [

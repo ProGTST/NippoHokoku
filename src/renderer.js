@@ -29,7 +29,7 @@ const BULK_CHANGE_FIELDS = [
   { key: 'date', label: '日付', col: '日付', type: 'date' },
   { key: 'anken', label: '案件', col: '案件コード', type: 'anken' },
   { key: 'sagyoNaiyo', label: '作業内容', col: '作業内容', type: 'select', options: SAGYO_NAIYO },
-  { key: 'sagyozikan', label: '作業時間', col: '作業時間', type: 'text' },
+  { key: 'sagyozikan', label: '作業時間', col: '作業時間', type: 'hours' },
   {
     key: 'sagyoShinchoku',
     label: '作業進捗',
@@ -430,7 +430,7 @@ function closeModalsForAuth() {
   if (isOpen('confirmModal')) closeConfirm(false);
   suspendedRegist = isOpen('registModal') ? { tanto: getVal('tanto') } : null;
   qsa('.modal-overlay').forEach((el) => el.classList.add('hidden'));
-  closeCalendar(false);
+  closePicker(false);
 }
 // 再ログイン後、ログイン切れの前と同じ担当者なら日報登録モーダルを入力内容のまま開き直す。
 // 別の担当者で入り直した場合は開き直さない（別人の画面に前の入力を出さない）。
@@ -1463,7 +1463,7 @@ function shiftFilterMonth(delta) {
   applyListFilter();
 }
 
-// filterYear/filterMonth を <input type="month"> に反映する。
+// filterYear/filterMonth を年月ピッカー（隠し項目 #filterMonth、yyyy-mm）に反映する。
 function syncMonthInput() {
   $('filterMonth').value = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
 }
@@ -1603,7 +1603,7 @@ function openModal(id) {
   updateHeaderTitle();
 }
 function closeModal(id) {
-  if (id === 'registModal') closeCalendar(false); // 日報登録を閉じたらカレンダーも閉じる
+  closePicker(false); // モーダル内の日付・年月のカレンダーが開いていれば一緒に閉じる
   $(id).classList.add('hidden');
   updateHeaderTitle();
 }
@@ -1890,9 +1890,7 @@ function checkError() {
   if (getVal('date').trim() === '') return '日付が未入力です';
   if (isNaN(new Date(getVal('date')).getDate())) return '日付が不正です';
   if (getVal('sagyoNaiyo').trim() === '') return '作業内容が未入力です';
-  // 数値入力欄に数値でない文字を入れると value は空になるため、未入力と区別して「不正」とする
-  if ($('sagyozikan').validity && $('sagyozikan').validity.badInput) return '作業時間が不正です';
-  const hourErr = hoursInputError(getVal('sagyozikan'));
+  const hourErr = hoursFieldError($('sagyozikan')); // 数値でない文字は「不正」（未入力と区別）
   if (hourErr) return hourErr;
   if (getVal('sagyoShinchoku').trim() === '') return '作業進捗が未入力です';
   if (getVal('sonotaHokoku').trim() === '') return 'その他報告事項が未入力です';
@@ -2035,27 +2033,7 @@ async function doDeleteInner() {
   }
 }
 
-// 日報登録の日付ボタンに「yyyy/mm/dd(曜)」を表示する（曜日は 土=青、日曜・祝日=赤。日報一覧の
-// 日付ヘッダー行と同じ判定）。日付が空なら「日付を選択」。
-function updateDateDow() {
-  const el = $('dateDow');
-  const txt = $('dateDispText');
-  const n = dateNum(getVal('date'));
-  if (!n) {
-    txt.textContent = '日付を選択';
-    txt.className = 'is-empty';
-    el.textContent = '';
-    el.className = 'date-dow';
-    el.title = '';
-    return;
-  }
-  txt.className = '';
-  txt.textContent = numToSlash(n);
-  el.textContent = `(${WEEKDAYS[numToDate(n).getDay()]})`;
-  el.className = ('date-dow ' + dowClass(n)).trim();
-  el.title = jpHolidays(Math.floor(n / 10000)).has(n) ? '祝日' : '';
-}
-// yyyymmdd 数値 → 「yyyy/mm/dd」／「yyyy-mm-dd」（#date の値）
+// yyyymmdd 数値 → 「yyyy/mm/dd」／「yyyy-mm-dd」（日付ピッカーの値）
 function numToSlash(n) {
   const d = numToDate(n);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
@@ -2064,96 +2042,344 @@ function numToIso(n) {
   return numToSlash(n).replace(/\//g, '-');
 }
 
-// ---- 日報登録の日付カレンダー（日付ボタンで開く自作カレンダー） ------------------
-// ブラウザ標準の日付欄は文字の表示形式を変えられず、曜日を重ねる方式ではフォーカス時に
-// 年・月・日の強調表示が透けて見えたため、ボタン＋自作カレンダーで日付を選ぶ。
-// 曜日・祝日の色は日報一覧と同じ判定（土=青、日曜・祝日=赤）。キー操作: 矢印で日付移動、
-// Enter で決定、Esc で閉じる。カレンダーの外をクリックしても閉じる。
+// ---- 共通の日付・年月ピッカー（ボタン＋自作カレンダー） ----------------------------
+// ブラウザ標準の日付欄（type="date"/"month"）は表示形式を変えられず、曜日を重ねる方式では
+// フォーカス時に年・月・日の強調表示が透けて見えたため、すべての日付・年月の入力をこの部品にそろえる。
+// - makePicker(input, kind): 隠し項目 input（kind='date' は yyyy-mm-dd、'month' は yyyy-mm）の前に
+//   ボタン（「yyyy/mm/dd(曜)」／「yyyy年m月」＋カレンダーアイコン）を置き、押すとカレンダーを開く。
+// - 値はこれまでどおり input.value で読み書きする（setVal 等で値を入れるとボタンの表示も追従する）。
+// - 選んだときは input に 'input'/'change' イベントを送る（変更検知・合計の取り直しなどはそれを聞く）。
+// - カレンダーは画面に1つだけで、body 直下に position: fixed で出す（モーダルや表の
+//   スクロール領域で切れないように）。曜日の色は日報一覧と同じ判定（土=青、日曜・祝日=赤）。
+// - キー操作: 矢印で移動、Enter で決定、Esc で閉じる。外をクリック・モーダルを閉じても閉じる。
+/** @typedef {{ input: any, btn: HTMLButtonElement, kind: 'date' | 'month', text: HTMLElement, dow: HTMLElement }} Picker */
+/** @type {Picker | null} */
+let pickerCur = null; // 開いているピッカー
 let calYear = 0;
-let calMonth = 0; // 1〜12
-let calFocus = 0; // キー操作で選んでいる日（yyyymmdd）
-function isCalendarOpen() {
-  return !$('calPop').classList.contains('hidden');
+let calMonth = 0; // 1〜12（日付カレンダーの表示月）
+let calFocus = 0; // キー操作で選んでいる日（yyyymmdd）／月（yyyymm）
+const INPUT_VALUE = /** @type {PropertyDescriptor} */ (
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+);
+const CAL_ICON_SVG =
+  '<svg class="date-pick-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
+  ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="3" y="4.5" width="18" height="16" rx="2" /><path d="M3 9.5h18M8 2.5v4M16 2.5v4" /></svg>';
+/** @param {any} input @param {'date' | 'month'} kind @param {{ disabled?: boolean }} [opts] */
+function makePicker(input, kind, opts = {}) {
+  input.type = 'hidden';
+  const wrap = document.createElement('span');
+  wrap.className = 'date-field';
+  input.replaceWith(wrap);
+  wrap.appendChild(input);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'date-pick' + (kind === 'month' ? ' is-month' : '');
+  btn.title = kind === 'month' ? 'カレンダーから年月を選ぶ' : 'カレンダーから日付を選ぶ';
+  btn.setAttribute('aria-haspopup', 'dialog');
+  btn.setAttribute('aria-expanded', 'false');
+  const label = document.createElement('span');
+  label.className = 'date-pick-text';
+  const text = document.createElement('span');
+  const dow = document.createElement('span');
+  label.appendChild(text);
+  label.appendChild(dow);
+  btn.appendChild(label);
+  btn.insertAdjacentHTML('beforeend', CAL_ICON_SVG); // 固定の SVG（データ値は含まない）
+  if (opts.disabled) btn.disabled = true;
+  wrap.appendChild(btn);
+  /** @type {Picker} */
+  const p = { input, btn, kind, text, dow };
+  input.picker = p;
+  // 値を入れたらボタンの表示も変える（setVal・直接代入のどちらでも追従させる）
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get() {
+      return INPUT_VALUE.get?.call(this);
+    },
+    set(v) {
+      INPUT_VALUE.set?.call(this, v);
+      refreshPicker(p);
+    }
+  });
+  btn.addEventListener('click', () => (pickerCur === p ? closePicker(true) : openPicker(p)));
+  refreshPicker(p);
+  return p;
 }
-function openCalendar() {
-  const n = dateNum(getVal('date')) || dateToNum(new Date());
-  calYear = Math.floor(n / 10000);
-  calMonth = Math.floor(n / 100) % 100;
-  calFocus = n;
+// 値の yyyymmdd（日付）／yyyymm（年月）。不正・空なら 0。
+function pickerNum(p) {
+  const v = String(p.input.value || '');
+  if (p.kind === 'month') {
+    const m = v.match(/^(\d{4})-(\d{1,2})$/);
+    return m ? Number(m[1]) * 100 + Number(m[2]) : 0;
+  }
+  return dateNum(v);
+}
+// ボタンの表示を値に合わせる（日付は「yyyy/mm/dd(曜)」、年月は「yyyy年m月」。空なら案内文）
+function refreshPicker(p) {
+  const n = pickerNum(p);
+  p.dow.textContent = '';
+  p.dow.className = 'date-dow';
+  p.dow.title = '';
+  if (!n) {
+    p.text.textContent = p.kind === 'month' ? '年月を選択' : '日付を選択';
+    p.text.className = 'is-empty';
+    return;
+  }
+  p.text.className = '';
+  if (p.kind === 'month') {
+    p.text.textContent = `${Math.floor(n / 100)}年${n % 100}月`;
+    return;
+  }
+  p.text.textContent = numToSlash(n);
+  p.dow.textContent = `(${WEEKDAYS[numToDate(n).getDay()]})`;
+  p.dow.className = ('date-dow ' + dowClass(n)).trim();
+  p.dow.title = jpHolidays(Math.floor(n / 10000)).has(n) ? '祝日' : '';
+}
+// 画面に1つだけのカレンダー（初回に body 直下へ作る）
+function calPop() {
+  let pop = $('calPop');
+  if (pop) return pop;
+  pop = document.createElement('div');
+  pop.id = 'calPop';
+  pop.className = 'cal-pop hidden';
+  pop.setAttribute('role', 'dialog');
+  pop.innerHTML =
+    '<div class="cal-head"><button id="calPrev" type="button" class="cal-nav">◀</button>' +
+    '<span id="calTitle" class="cal-title"></span>' +
+    '<button id="calNext" type="button" class="cal-nav">▶</button></div>' +
+    '<div id="calGrid" class="cal-grid"></div>' +
+    '<div class="cal-foot"><button id="calToday" type="button"></button></div>';
+  document.body.appendChild(pop);
+  $('calPrev').addEventListener('click', () => shiftCalPage(-1));
+  $('calNext').addEventListener('click', () => shiftCalPage(1));
+  $('calToday').addEventListener('click', () => {
+    const t = dateToNum(new Date());
+    pickCal(pickerCur && pickerCur.kind === 'month' ? Math.floor(t / 100) : t);
+  });
+  pop.addEventListener('keydown', (e) => {
+    const t = /** @type {any} */ (e.target);
+    const onCell = t.classList && t.classList.contains('cal-day');
+    const cols = pickerCur && pickerCur.kind === 'month' ? 4 : 7;
+    const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols };
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closePicker(true);
+    } else if (onCell && e.key in moves) {
+      e.preventDefault();
+      moveCalFocus(moves[e.key]);
+    }
+  });
+  // カレンダーの外（開いたボタン以外）をクリックしたら閉じる
+  document.addEventListener('mousedown', (e) => {
+    const t = /** @type {any} */ (e.target);
+    if (pickerCur && !pop.contains(t) && !pickerCur.btn.contains(t)) closePicker(false);
+  });
+  // スクロール・画面サイズの変更では、開いたボタンの位置に付いていく
+  window.addEventListener('resize', placeCalPop);
+  document.addEventListener('scroll', placeCalPop, true);
+  return pop;
+}
+/** @param {Picker} p */
+function openPicker(p) {
+  if (pickerCur) closePicker(false);
+  const pop = calPop();
+  const n = pickerNum(p);
+  const t = dateToNum(new Date());
+  if (p.kind === 'month') {
+    calFocus = n || Math.floor(t / 100);
+    calYear = Math.floor(calFocus / 100);
+  } else {
+    calFocus = n || t;
+    calYear = Math.floor(calFocus / 10000);
+    calMonth = Math.floor(calFocus / 100) % 100;
+  }
+  pickerCur = p;
+  pop.setAttribute('aria-label', p.kind === 'month' ? '年月を選ぶ' : '日付を選ぶ');
+  $('calPrev').title = p.kind === 'month' ? '前の年' : '前の月';
+  $('calNext').title = p.kind === 'month' ? '次の年' : '次の月';
+  $('calToday').textContent = p.kind === 'month' ? '今月' : '今日';
+  pop.classList.toggle('is-month', p.kind === 'month');
   renderCalendar();
-  $('calPop').classList.remove('hidden');
-  $('dateBtn').setAttribute('aria-expanded', 'true');
-  focusCalDay();
+  pop.classList.remove('hidden');
+  placeCalPop();
+  p.btn.setAttribute('aria-expanded', 'true');
+  focusCalCell();
 }
-function closeCalendar(returnFocus) {
-  if (!isCalendarOpen()) return;
-  $('calPop').classList.add('hidden');
-  $('dateBtn').setAttribute('aria-expanded', 'false');
-  if (returnFocus) $('dateBtn').focus();
+// 開いているカレンダーを閉じる（returnFocus=true ならボタンへフォーカスを戻す）
+function closePicker(returnFocus) {
+  const p = pickerCur;
+  if (!p) return;
+  pickerCur = null;
+  calPop().classList.add('hidden');
+  p.btn.setAttribute('aria-expanded', 'false');
+  if (returnFocus) p.btn.focus();
+}
+// ボタンの下（入りきらなければ上）に出す。横は画面からはみ出さないように寄せる。
+function placeCalPop() {
+  if (!pickerCur) return;
+  const pop = calPop();
+  const r = pickerCur.btn.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  const h = pop.offsetHeight;
+  let top = r.bottom + 4;
+  if (top + h > window.innerHeight - 8 && r.top - h - 4 >= 8) top = r.top - h - 4;
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+  pop.style.top = `${Math.round(top)}px`;
+  pop.style.left = `${Math.round(left)}px`;
 }
 function renderCalendar() {
-  $('calTitle').textContent = `${calYear}年${calMonth}月`;
+  const p = pickerCur;
+  if (!p) return;
   const grid = $('calGrid');
   grid.innerHTML = '';
+  const selected = pickerNum(p);
+  const todayNum = dateToNum(new Date());
+  /** @param {number} n @param {string} label @param {string[]} cls @param {string} title */
+  const addCell = (n, label, cls, title) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.n = String(n);
+    b.textContent = label;
+    b.className = ['cal-day', ...cls].filter(Boolean).join(' ');
+    b.title = title;
+    b.tabIndex = n === calFocus ? 0 : -1;
+    b.addEventListener('click', () => pickCal(n));
+    grid.appendChild(b);
+  };
+  if (p.kind === 'month') {
+    // 年月: 見出しは年、1〜12月を 4 列で並べる
+    $('calTitle').textContent = `${calYear}年`;
+    for (let m = 1; m <= 12; m++) {
+      const n = calYear * 100 + m;
+      const cls = [];
+      if (n === Math.floor(todayNum / 100)) cls.push('is-today');
+      if (n === selected) cls.push('is-selected');
+      addCell(n, `${m}月`, cls, `${calYear}年${m}月`);
+    }
+    return;
+  }
+  // 日付: 曜日の見出しと、1日を含む週の日曜日から 6 週分（42 日）
+  $('calTitle').textContent = `${calYear}年${calMonth}月`;
   WEEKDAYS.forEach((w, i) => {
     const h = document.createElement('span');
     h.className = 'cal-wd' + (i === 0 ? ' dow-hol' : i === 6 ? ' dow-sat' : '');
     h.textContent = w;
     grid.appendChild(h);
   });
-  const selected = dateNum(getVal('date'));
-  const today = dateToNum(new Date());
-  // 1日を含む週の日曜日から 6 週分（42 日）を並べる
   const start = new Date(calYear, calMonth - 1, 1);
   start.setDate(start.getDate() - start.getDay());
   for (let i = 0; i < 42; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
     const n = dateToNum(d);
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.dataset.n = String(n);
-    b.textContent = String(d.getDate());
-    const cls = ['cal-day', dowClass(n)];
+    const cls = [dowClass(n)];
     if (d.getMonth() + 1 !== calMonth) cls.push('is-other');
-    if (n === today) cls.push('is-today');
+    if (n === todayNum) cls.push('is-today');
     if (n === selected) cls.push('is-selected');
-    b.className = cls.filter(Boolean).join(' ');
-    b.title = numToSlash(n) + (jpHolidays(d.getFullYear()).has(n) ? '（祝日）' : '');
-    b.tabIndex = n === calFocus ? 0 : -1;
-    b.addEventListener('click', () => pickCalDate(n));
-    grid.appendChild(b);
+    const hol = jpHolidays(d.getFullYear()).has(n) ? '（祝日）' : '';
+    addCell(n, String(d.getDate()), cls, numToSlash(n) + hol);
   }
 }
-function focusCalDay() {
+function focusCalCell() {
   const b = qs(`#calGrid button[data-n="${calFocus}"]`);
   if (b) b.focus();
 }
-// 表示中の月を delta か月ずらす（キー操作の選択日は 1 日に寄せる）
-function shiftCalMonth(delta) {
-  const d = new Date(calYear, calMonth - 1 + delta, 1);
-  calYear = d.getFullYear();
-  calMonth = d.getMonth() + 1;
-  calFocus = dateToNum(d);
+// 表示ページ（日付=月、年月=年）を delta だけずらす（キー操作の選択位置は先頭に寄せる）
+function shiftCalPage(delta) {
+  if (pickerCur && pickerCur.kind === 'month') {
+    calYear += delta;
+    calFocus = calYear * 100 + 1;
+  } else {
+    const d = new Date(calYear, calMonth - 1 + delta, 1);
+    calYear = d.getFullYear();
+    calMonth = d.getMonth() + 1;
+    calFocus = dateToNum(d);
+  }
   renderCalendar();
 }
-// キー操作で選んでいる日を delta 日ずらす（月をまたいだら表示月も切り替える）
+// キー操作で選んでいる日（年月は月）を delta ずらす。ページをまたいだら表示も切り替える。
 function moveCalFocus(delta) {
-  const d = numToDate(calFocus);
-  d.setDate(d.getDate() + delta);
-  calFocus = dateToNum(d);
-  if (d.getFullYear() !== calYear || d.getMonth() + 1 !== calMonth) {
+  if (pickerCur && pickerCur.kind === 'month') {
+    const idx = Math.floor(calFocus / 100) * 12 + (calFocus % 100) - 1 + delta;
+    calFocus = Math.floor(idx / 12) * 100 + (idx % 12) + 1;
+    calYear = Math.floor(calFocus / 100);
+  } else {
+    const d = numToDate(calFocus);
+    d.setDate(d.getDate() + delta);
+    calFocus = dateToNum(d);
     calYear = d.getFullYear();
     calMonth = d.getMonth() + 1;
   }
   renderCalendar();
-  focusCalDay();
+  focusCalCell();
 }
-function pickCalDate(n) {
-  setVal('date', numToIso(n));
-  closeCalendar(true);
-  doTotal(); // 合計の取り直し（曜日表示・新規時の作業時間の初期値もここで更新）
+// カレンダーで選んだ値を入れ、閉じてから変更イベントを送る
+function pickCal(n) {
+  const p = pickerCur;
+  if (!p) return;
+  p.input.value =
+    p.kind === 'month' ? `${Math.floor(n / 100)}-${String(n % 100).padStart(2, '0')}` : numToIso(n);
+  closePicker(true);
+  p.input.dispatchEvent(new Event('input', { bubbles: true }));
+  p.input.dispatchEvent(new Event('change', { bubbles: true }));
 }
+
+// ---- 共通の作業時間入力（0.25 時間＝15分単位） ------------------------------------
+// 日報登録・一括変更・個別変更の作業時間をこの入力にそろえる。スピンボタン・上下キー（ブラウザ標準）と、
+// 入力欄を選んだ状態（フォーカス中）のマウスホイールで 0.25 ずつ増減する。ホイールは Chromium 任せにせず
+// 自前で処理する（0.25 の倍数にそろえ、0〜24 に収め、利用者の入力として input/change イベントを送る）。
+// フォーカスしていない欄の上でホイールを回したときは値を変えず、通常どおり画面をスクロールする
+// （スクロールしたつもりで作業時間が変わる誤操作を防ぐ）。
+const HOURS_STEP = 0.25;
+/** @param {any} el */
+function setupHoursInput(el) {
+  el.type = 'number';
+  el.step = String(HOURS_STEP);
+  el.min = String(HOURS_MIN);
+  el.max = String(HOURS_MAX);
+  el.classList.add('hours-input');
+  el.title =
+    '▲▼・上下キー・マウスホイール（入力欄を選んだ状態）で 0.25 時間（15分）ずつ増減できます';
+  el.addEventListener(
+    'wheel',
+    (e) => {
+      if (el.readOnly || el.disabled || document.activeElement !== el) return;
+      e.preventDefault();
+      if (e.deltaY !== 0) stepHours(el, e.deltaY < 0 ? 1 : -1);
+    },
+    { passive: false }
+  );
+  return el;
+}
+// 作業時間を 1 段階（0.25）増減する。0.25 の倍数でない値は、その方向の次の倍数にそろえる。
+function stepHours(el, dir) {
+  const cur = Number(String(el.value).trim() || 0);
+  const base = Number.isFinite(cur) ? cur : 0;
+  const q = 1 / HOURS_STEP;
+  let next =
+    dir > 0
+      ? Math.floor(base * q + 1e-9) / q + HOURS_STEP
+      : Math.ceil(base * q - 1e-9) / q - HOURS_STEP;
+  next = Math.min(HOURS_MAX, Math.max(HOURS_MIN, next));
+  el.value = String(next);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+// 作業時間の入力欄の検査（数値でない文字は value が空になるため、未入力と区別して「不正」とする）
+function hoursFieldError(el) {
+  if (el.validity && el.validity.badInput) return '作業時間が不正です';
+  return hoursInputError(el.value);
+}
+// 作業時間の値が同じか（"8" と "8.00" は同じ）。一括変更・個別変更の変更判定に使う。
+function sameHours(a, b) {
+  const sa = String(a ?? '').trim();
+  const sb = String(b ?? '').trim();
+  if (sa === '' || sb === '' || isNaN(Number(sa)) || isNaN(Number(sb))) return sa === sb;
+  return Number(sa) === Number(sb);
+}
+
 // 日報登録の日付を delta 日ずらす（◀▶ボタン）。日付が空なら今日を基準にする。
 function shiftRegDate(delta) {
   const n = dateNum(getVal('date')) || dateToNum(new Date());
@@ -2169,7 +2395,6 @@ function shiftRegDate(delta) {
 // 日付を続けて変えた時に古い要求の応答で上書きしないよう、最新の要求の応答だけ反映する。
 let totalSeq = 0;
 async function doTotal() {
-  updateDateDow(); // 日付を変える経路は必ず合計の取り直しを通るので、ここで曜日も更新する
   const seq = ++totalSeq;
   $('totalVal').textContent = '-';
   const d = toApiDate(getVal('date'));
@@ -2389,9 +2614,13 @@ function buildBeforeControl(f, container) {
   const first = bulkRows[0];
   if (f.type === 'date') {
     const el = document.createElement('input');
-    el.type = 'date';
+    container.appendChild(el);
+    makePicker(el, 'date', { disabled: true });
     el.value = toInputDate(first['日付']);
-    el.disabled = true;
+  } else if (f.type === 'hours') {
+    const el = setupHoursInput(document.createElement('input'));
+    el.value = first[f.col] || '';
+    el.readOnly = true;
     container.appendChild(el);
   } else if (f.type === 'anken') {
     // 変更前は参照用のため検索ボタンは出さない（案件コードは readonly 表示のみ）
@@ -2435,17 +2664,20 @@ function buildAfterControl(f, container) {
     if (bulkChecks[f.key]) bulkChecks[f.key].checked = true;
   };
   if (f.type === 'date') {
+    // 日付は共通の日付ピッカー（登録モーダルと同じボタン＋カレンダー）
     const el = document.createElement('input');
-    el.type = 'date';
-    el.value = toInputDate(first['日付']);
-    // 日付はカレンダー入力のみ（登録モーダルと同様）
-    el.addEventListener('keydown', (e) => {
-      if (e.key !== 'Tab') e.preventDefault();
-    });
-    el.addEventListener('input', markDirty);
-    el.addEventListener('change', markDirty);
     container.appendChild(el);
+    makePicker(el, 'date');
+    el.value = toInputDate(first['日付']);
+    el.addEventListener('change', markDirty);
     bulkAfterEls.date = el;
+  } else if (f.type === 'hours') {
+    // 作業時間は共通の 0.25 時間単位の入力（登録モーダルと同じ）
+    const el = setupHoursInput(document.createElement('input'));
+    el.value = first[f.col] || '';
+    el.addEventListener('input', markDirty);
+    container.appendChild(el);
+    bulkAfterEls[f.key] = el;
   } else if (f.type === 'anken') {
     const cd = roInput();
     const search = document.createElement('button');
@@ -2623,7 +2855,7 @@ function bulkChangeError(after, isTarget, rows) {
   if (isTarget('anken') && after.ankenCd.trim() === '') return '案件が未入力です';
   if (isTarget('sagyoNaiyo') && after.sagyoNaiyo.trim() === '') return '作業内容が未入力です';
   if (isTarget('sagyozikan')) {
-    const hourErr = hoursInputError(after.sagyozikan);
+    const hourErr = hoursFieldError(bulkAfterEls.sagyozikan);
     if (hourErr) return hourErr;
   }
   if (isTarget('sagyoShinchoku') && after.sagyoShinchoku.trim() === '')
@@ -2701,7 +2933,9 @@ async function doBulkChangeInner() {
     }
     ['sagyoNaiyo', 'sagyozikan', 'sagyoShinchoku', 'okureHokoku', 'sonotaHokoku'].forEach((k) => {
       if (k in after) {
-        if (String(after[k]) !== String(body[k])) changed = true;
+        const same =
+          k === 'sagyozikan' ? sameHours(after[k], body[k]) : String(after[k]) === String(body[k]);
+        if (!same) changed = true;
         body[k] = after[k];
       }
     });
@@ -2855,13 +3089,10 @@ function buildBulkIndivGrid() {
     const dateTd = document.createElement('td');
     dateTd.className = 'c-date';
     e.date = document.createElement('input');
-    e.date.type = 'date';
-    e.date.value = toInputDate(r['日付']);
-    e.date.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'Tab') ev.preventDefault();
-    });
-    wireIndivChange(e.date);
     dateTd.appendChild(e.date);
+    makePicker(e.date, 'date'); // 共通の日付ピッカー（ボタン＋カレンダー）
+    e.date.value = toInputDate(r['日付']);
+    wireIndivChange(e.date);
     r1.appendChild(dateTd);
 
     const ankenTd = document.createElement('td');
@@ -2898,8 +3129,7 @@ function buildBulkIndivGrid() {
 
     const jikanTd = document.createElement('td');
     jikanTd.className = 'c-jikan';
-    e.sagyozikan = document.createElement('input');
-    e.sagyozikan.type = 'text';
+    e.sagyozikan = setupHoursInput(document.createElement('input')); // 0.25 時間単位の共通入力
     e.sagyozikan.value = r['作業時間'] || '';
     wireIndivChange(e.sagyozikan);
     jikanTd.appendChild(e.sagyozikan);
@@ -2939,9 +3169,13 @@ function buildBulkIndivGrid() {
 // 個別変更のコントロールに変更検知を付ける。初期値と異なる間だけ薄赤（bi-changed）にする。
 /** @param {any} el */
 // 送信に成功した後は resetIndivBase() で基準値を送信後の値に置き換え、薄赤を外す。
+// 日付ピッカーは隠し項目の代わりにボタンへ薄赤を付ける。作業時間は "8" と "8.00" を同じ値とみなす。
 function wireIndivChange(el) {
   let initial = el.value;
-  const update = () => el.classList.toggle('bi-changed', el.value !== initial);
+  const target = el.picker ? el.picker.btn : el;
+  const same =
+    el.type === 'number' ? () => sameHours(el.value, initial) : () => el.value === initial;
+  const update = () => target.classList.toggle('bi-changed', !same());
   el.addEventListener('input', update);
   el.addEventListener('change', update);
   el.resetIndivBase = () => {
@@ -3040,7 +3274,9 @@ function isIndivChanged(e, body) {
     'sagyoShinchoku',
     'okureHokoku',
     'sonotaHokoku'
-  ].some((k) => String(body[k]) !== String(o[k]));
+  ].some((k) =>
+    k === 'sagyozikan' ? !sameHours(body[k], o[k]) : String(body[k]) !== String(o[k])
+  );
 }
 
 // 個別変更の1行を日報登録（checkError）と同じ観点で検証する。
@@ -3050,7 +3286,7 @@ function indivRowError(e) {
   if (b.date.trim() === '') return '日付が未入力です';
   if (isNaN(new Date(e.date.value).getDate())) return '日付が不正です';
   if (b.sagyoNaiyo.trim() === '') return '作業内容が未入力です';
-  const hourErr = hoursInputError(b.sagyozikan);
+  const hourErr = hoursFieldError(e.sagyozikan);
   if (hourErr) return hourErr;
   if (b.sagyoShinchoku.trim() === '') return '作業進捗が未入力です';
   if (b.sonotaHokoku.trim() === '') return 'その他報告事項が未入力です';
@@ -3562,6 +3798,14 @@ function toast(msg, kind) {
 
 // ---- イベント配線 ---------------------------------------------------------
 function wire() {
+  // 日付・年月は共通の日付ピッカー（ボタン＋自作カレンダー）、作業時間は 0.25 時間単位の共通入力にする
+  // （一括変更・個別変更の分は、画面を組み立てるときに同じ部品で作る）
+  makePicker($('filterMonth'), 'month');
+  makePicker($('date'), 'date');
+  makePicker($('bulkDateFrom'), 'date');
+  makePicker($('bulkDateTo'), 'date');
+  setupHoursInput($('sagyozikan'));
+
   // 認証画面
   $('btnEnterApp').addEventListener('click', () => tryEnter(false));
   const btnBrowserLogin = $('btnBrowserLogin');
@@ -3610,10 +3854,6 @@ function wire() {
     filterMonth = Number(m[2]);
     applyListFilter();
   });
-  // 年月は直接入力不可（カレンダー選択のみ）。Tab のみ許可してフォーカス移動は残す
-  $('filterMonth').addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab') e.preventDefault();
-  });
   // 絞り込みツールバー：入力・選択のたびに再フィルタ
   ['fCode', 'fTorihiki', 'fAnken', 'fSonota'].forEach((id) =>
     $(id).addEventListener('input', () => applyListFilter())
@@ -3656,12 +3896,6 @@ function wire() {
       $('bulkDateToWrap').classList.toggle('hidden', !range);
     });
   });
-  // 一括コピーの日付もカレンダー入力のみ
-  ['bulkDateFrom', 'bulkDateTo'].forEach((id) => {
-    $(id).addEventListener('keydown', (e) => {
-      if (e.key !== 'Tab') e.preventDefault();
-    });
-  });
   // 範囲指定で 開始日 > 終了日 になったら 終了日＝開始日 に補正（yyyy-mm-dd は文字列比較で可）
   const fixBulkRange = () => {
     const f = getVal('bulkDateFrom'),
@@ -3697,43 +3931,9 @@ function wire() {
       doTotal();
     });
   });
-  // 日付はボタンで自作カレンダーを開いて選ぶ（選んだら pickCalDate で合計を取り直す）
-  $('dateBtn').addEventListener('click', () =>
-    isCalendarOpen() ? closeCalendar(true) : openCalendar()
-  );
-  $('calPrev').addEventListener('click', () => shiftCalMonth(-1));
-  $('calNext').addEventListener('click', () => shiftCalMonth(1));
-  $('calToday').addEventListener('click', () => pickCalDate(dateToNum(new Date())));
-  $('calPop').addEventListener('keydown', (e) => {
-    const onDay = e.target.classList && e.target.classList.contains('cal-day');
-    const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      closeCalendar(true);
-    } else if (onDay && e.key in moves) {
-      e.preventDefault();
-      moveCalFocus(moves[e.key]);
-    }
-  });
-  // カレンダーの外（日付ボタン以外）をクリックしたら閉じる
-  document.addEventListener('mousedown', (e) => {
-    if (isCalendarOpen() && !$('dateField').contains(/** @type {any} */ (e.target)))
-      closeCalendar(false);
-  });
-  // 作業時間（数値入力）は、フォーカス中にマウスホイールを回すと Chromium が値を増減してしまい、
-  // 画面をスクロールしたつもりで作業時間が変わる。ホイールでは値を変えず、モーダルの本文だけを
-  // スクロールさせる（増減はスピンボタンと上下キーで行う）。
-  $('sagyozikan').addEventListener(
-    'wheel',
-    (e) => {
-      if (document.activeElement !== e.currentTarget) return; // フォーカス外では値は変わらない
-      e.preventDefault();
-      const body = /** @type {any} */ (e.currentTarget).closest('.modal-body');
-      if (body) body.scrollBy(0, e.deltaY);
-    },
-    { passive: false }
-  );
+  // 日付はボタンで自作カレンダーを開いて選ぶ（共通の日付ピッカー。選んだら合計を取り直す）
+  $('date').addEventListener('change', () => doTotal());
+  // 作業時間は 0.25 時間単位の共通入力（スピンボタン・上下キー・フォーカス中のホイール）
   // 利用者が作業時間を入力・増減したら、以後は自動入力（8 − その日の合計）で上書きしない
   $('sagyozikan').addEventListener('input', () => (hoursAutoFill = false));
   $('btnDatePrev').addEventListener('click', () => shiftRegDate(-1));

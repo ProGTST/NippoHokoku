@@ -546,8 +546,8 @@ body.app .main-view {
 .month-nav.hidden {
   display: none;
 }
-.month-nav input[type='month'] {
-  padding: 3px 6px;
+.month-nav button.date-pick {
+  padding: 3px 8px;
 }
 
 .status-bar {
@@ -659,8 +659,10 @@ input[readonly] {
 button.date-shift {
   padding: 5px 7px;
 }
-/* 日報登録の日付: ボタン（「yyyy/mm/dd(曜)」＋カレンダーアイコン）と、押すと開く自作カレンダー。
-   ブラウザ標準の日付欄（input[type=date]）は文字の表示形式を変えられず曜日を出せないため使わない。 */
+/* 共通の日付・年月ピッカー（renderer.js の makePicker）: ボタン（「yyyy/mm/dd(曜)」／「yyyy年m月」＋
+   カレンダーアイコン）と、押すと開く自作カレンダー。ブラウザ標準の日付欄（input[type=date]/[type=month]）は
+   文字の表示形式を変えられず曜日を出せないため使わない。カレンダーは body 直下に1つだけ置き、
+   モーダルや表のスクロール領域で切れないよう position: fixed でボタンの位置に出す。 */
 .date-field {
   position: relative;
   display: inline-flex;
@@ -677,10 +679,18 @@ button.date-pick {
   background: var(--panel);
   color: var(--text);
 }
-button.date-pick:hover,
+button.date-pick:hover:not(:disabled),
 button.date-pick[aria-expanded='true'] {
   border-color: var(--primary);
   background: var(--panel);
+}
+/* 一括変更の「変更前」（参照用）は押せない見た目にする */
+button.date-pick:disabled {
+  background: var(--bg);
+  cursor: default;
+}
+button.date-pick:disabled .date-pick-icon {
+  opacity: 0.4;
 }
 .date-pick-text {
   white-space: nowrap;
@@ -695,10 +705,10 @@ button.date-pick[aria-expanded='true'] {
   color: var(--muted);
 }
 .cal-pop {
-  position: absolute;
-  top: calc(100% + 4px);
+  position: fixed;
+  top: 0;
   left: 0;
-  z-index: 60;
+  z-index: 70;
   width: 252px;
   padding: 8px;
   background: var(--panel);
@@ -769,6 +779,14 @@ button.cal-day.is-selected:hover {
   background: var(--primary);
   color: var(--on-dark);
   font-weight: 700;
+}
+/* 年月のカレンダー: 1〜12月を 4 列で並べる */
+.cal-pop.is-month .cal-grid {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.cal-pop.is-month button.cal-day {
+  height: 36px;
 }
 .cal-foot {
   display: flex;
@@ -1694,13 +1712,13 @@ button.cell-filter:active {
 }
 /* 1段目の列幅（案件は残り幅を可変で使う） */
 .bi-table .c-date {
-  width: 122px;
+  width: 156px;
 }
 .bi-table .c-naiyo {
   width: 150px;
 }
 .bi-table .c-jikan {
-  width: 60px;
+  width: 78px;
 }
 .bi-table .c-shinchoku {
   width: 92px;
@@ -1828,7 +1846,16 @@ button.cell-filter:active {
    変更対象チェックはより詳細度の高い .bc-after > .bc-check 側の 16px 指定が優先される。 */
 .bc-cell input,
 .bc-cell select,
-.bc-cell textarea {
+.bc-cell textarea,
+.bc-cell .date-field,
+.bc-cell button.date-pick {
+  width: 100%;
+}
+/* 一括変更・個別変更の作業時間・日付は欄の幅いっぱい（共通部品の既定幅より優先） */
+.bc-cell input.hours-input,
+.bi-table input.hours-input,
+.bi-table .date-field,
+.bi-table button.date-pick {
   width: 100%;
 }
 /* 変更ページ下部の注意書き */

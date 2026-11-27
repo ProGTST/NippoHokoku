@@ -140,7 +140,7 @@
         <span id="modeLabel" class="mode-label">月表示モード</span>
         <span id="monthNav" class="month-nav">
           <button id="btnPrevMonth" title="前の月">◀</button>
-          <input id="filterMonth" type="month" title="表示する月" />
+          <input id="filterMonth" type="hidden" />
           <button id="btnNextMonth" title="次の月">▶</button>
         </span>
         <span class="spacer"></span>
@@ -220,46 +220,9 @@
               <div class="frow">
                 <label>日付</label>
                 <button id="btnDatePrev" class="date-shift" title="前の日へ">◀</button>
-                <!-- 日付はボタン（「yyyy/mm/dd(曜)」を表示）で、押すと自作のカレンダーを開いて選ぶ。
+                <!-- 日付は共通の日付ピッカー（renderer.js の makePicker。ボタン＋自作カレンダー）。
                      値は隠し項目 #date に yyyy-mm-dd で持つ（ブラウザ標準の日付欄は使わない） -->
-                <span id="dateField" class="date-field">
-                  <input id="date" type="hidden" />
-                  <button
-                    id="dateBtn"
-                    type="button"
-                    class="w-field date-pick"
-                    title="カレンダーから日付を選ぶ"
-                    aria-haspopup="dialog"
-                  >
-                    <span class="date-pick-text"
-                      ><span id="dateDispText"></span><span id="dateDow" class="date-dow"></span
-                    ></span>
-                    <svg
-                      class="date-pick-icon"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <rect x="3" y="4.5" width="18" height="16" rx="2" />
-                      <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
-                    </svg>
-                  </button>
-                  <div id="calPop" class="cal-pop hidden" role="dialog" aria-label="日付を選ぶ">
-                    <div class="cal-head">
-                      <button id="calPrev" type="button" class="cal-nav" title="前の月">◀</button>
-                      <span id="calTitle" class="cal-title"></span>
-                      <button id="calNext" type="button" class="cal-nav" title="次の月">▶</button>
-                    </div>
-                    <div id="calGrid" class="cal-grid"></div>
-                    <div class="cal-foot">
-                      <button id="calToday" type="button">今日</button>
-                    </div>
-                  </div>
-                </span>
+                <input id="date" type="hidden" />
                 <button id="btnDateNext" class="date-shift" title="次の日へ">▶</button>
                 <button data-days="-3" class="date-btn">一昨昨日</button>
                 <button data-days="-2" class="date-btn">一昨日</button>
@@ -288,15 +251,8 @@
                 <label>作業内容</label>
                 <select id="sagyoNaiyo" class="w-field"></select>
                 <label class="lbl-sm">作業時間</label>
-                <input
-                  id="sagyozikan"
-                  type="number"
-                  step="0.25"
-                  min="0"
-                  max="24"
-                  class="hours-input"
-                  title="▲▼（または上下キー）で 0.25 時間（15分）ずつ増減できます"
-                />
+                <!-- 作業時間は共通の数値入力（renderer.js の setupHoursInput。0.25 時間単位） -->
+                <input id="sagyozikan" />
                 <label class="lbl-sm">作業進捗</label>
                 <select id="sagyoShinchoku"></select>
               </div>
@@ -478,9 +434,9 @@
           </div>
           <div class="frow">
             <label>日付</label>
-            <input id="bulkDateFrom" type="date" class="w-field" />
+            <input id="bulkDateFrom" type="hidden" />
             <span id="bulkDateToWrap" class="range-to hidden"
-              >〜 <input id="bulkDateTo" type="date" class="w-field"
+              >〜 <input id="bulkDateTo" type="hidden"
             /></span>
           </div>
           <div class="frow muted">選択した日報を、指定日（範囲の場合は各日）に新規登録します。</div>
