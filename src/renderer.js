@@ -1048,14 +1048,17 @@ function groupRowsByDate(rows) {
 }
 
 // 日付ごとに「日付(曜) / 作業合計時間ゲージ / 作業進捗（最多の割合）ゲージ … 作業件数（右端）」を表示する。
+// 今日より未来の日付（予定として入力した日報）は、背景を黄色系にし（is-future）、作業時間のラベルを
+// 「予定時間」にして、作業進捗（まだ作業していないため意味が無い）は表示しない。
 // 集計は絞り込み条件に関係なくその日の全日報（allNippoRows）で行う（1日の合計時間を正しく見せるため）。
 // 絞り込みで一部だけ表示されている場合は件数を「表示/全体」で示す。
 // dayAll: その日の全日報 / dayShown: その日の表示中（絞り込み後）の日報。
 function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGroups, onSelChange) {
   const total = dayAll.reduce((s, r) => s + hoursOf(r), 0);
+  const future = dn > dateToNum(new Date()); // 今日より未来（予定）
 
   const tr = document.createElement('tr');
-  tr.className = 'date-row';
+  tr.className = future ? 'date-row is-future' : 'date-row';
   if (selectable) {
     // 日付単位の選択（配下の表示行をまとめて選択／解除）
     const td = document.createElement('td');
@@ -1101,19 +1104,21 @@ function buildDateHeaderRow(dn, dayAll, dayShown, colCount, selectable, dateGrou
   const timeCls = t < STD_HOURS ? 'g-under' : t > STD_HOURS ? 'g-over' : 'g-just';
   main.appendChild(
     buildGauge(
-      `作業時間 ${fmtHours(total)}h`,
+      `${future ? '予定時間' : '作業時間'} ${fmtHours(total)}h`,
       Math.min(total / STD_HOURS, 1),
       timeCls,
-      `合計 ${fmtHours(total)}h / 標準 ${STD_HOURS}h`
+      `${future ? '予定の合計' : '合計'} ${fmtHours(total)}h / 標準 ${STD_HOURS}h`
     )
   );
 
-  // 作業進捗：件数ベースの割合で最も多いものだけ表示（同率は遅れ側を優先）
-  const counts = {};
-  dayAll.forEach((r) => {
-    const s = String(r['作業進捗'] || '');
-    if (s) counts[s] = (counts[s] || 0) + 1;
-  });
+  // 作業進捗：件数ベースの割合で最も多いものだけ表示（同率は遅れ側を優先）。未来の日付は表示しない。
+  const counts = {}; // 未来の日付は集計せず空のまま（下の if (top) に入らないので表示されない）
+  if (!future) {
+    dayAll.forEach((r) => {
+      const s = String(r['作業進捗'] || '');
+      if (s) counts[s] = (counts[s] || 0) + 1;
+    });
+  }
   const order = ['遅れ', 'やや遅れ', '順調'];
   let top = '';
   Object.keys(counts).forEach((s) => {

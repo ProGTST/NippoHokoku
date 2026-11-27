@@ -14,7 +14,8 @@ window.RELEASE_NOTES = [
       { type: 'improve', text: '一括変更・個別変更の作業時間も15分単位のボタンで増減' },
       { type: 'improve', text: '一括コピー・一括変更の日付もカレンダーで選べるように' },
       { type: 'improve', text: '一覧の年月もカレンダーで選べるように' },
-      { type: 'new', text: '一括コピーの範囲指定で「営業日のみ」登録できるように' }
+      { type: 'new', text: '一括コピーの範囲指定で「営業日のみ」登録できるように' },
+      { type: 'improve', text: '未来の日付は黄色の背景で「予定時間」と表示' }
     ]
   },
   {

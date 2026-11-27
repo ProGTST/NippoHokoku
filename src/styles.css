@@ -37,6 +37,8 @@
   --row-nonwork-text: #5b6270;
   --date-row-bg: #e3e9f2; /* 日付ヘッダー行 */
   --date-row-border: #c3ccd8;
+  --date-row-future-bg: #fdf3c4; /* 今日より未来の日付ヘッダー行（予定） */
+  --date-row-future-border: #e6d38f;
   /* ゲージ・警告 */
   --gauge-under: #facc15; /* 8時間未満 */
   --under-text: #a16207;
@@ -1040,6 +1042,17 @@ body.view-only tbody tr.date-row {
 }
 tbody tr.date-row:hover {
   background: var(--date-row-bg);
+}
+/* 今日より未来の日付（予定として入力した日報）は黄色系の背景にする。固定表示のまとまり
+   （.dh-main）・作業件数（.dh-count）も同じ背景で覆う */
+tbody tr.date-row.is-future,
+tbody tr.date-row.is-future:hover,
+tbody tr.date-row.is-future .dh-main,
+tbody tr.date-row.is-future .dh-count {
+  background: var(--date-row-future-bg);
+}
+tbody tr.date-row.is-future td {
+  border-top-color: var(--date-row-future-border);
 }
 tbody tr.date-row td {
   padding: 4px 8px;
