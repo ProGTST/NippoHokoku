@@ -1453,6 +1453,21 @@ button.cell-filter:active {
   color: var(--ok-d);
   font-weight: 600;
 }
+/* 件数制限で失敗したときの案内（結果ポップアップ） */
+.prog-limit-note {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn);
+  color: var(--warn-text);
+}
+.prog-limit-title {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.prog-limit-text {
+  line-height: 1.6;
+}
 .prog-h {
   margin-top: 6px;
   font-weight: 600;

@@ -2045,10 +2045,13 @@ async function runBulk(label, items, task, keyOf) {
     ng: 0,
     skip: 0,
     failed: /** @type {string[]} */ ([]),
+    pending: /** @type {string[]} */ ([]), // 中断・件数制限・ログイン切れで送らなかった（未処理の）日報
     reasons: /** @type {Map<string, number>} */ (new Map()), // 失敗理由 → 件数
     aborted: 0,
     canceled: 0,
     limited: 0, // 再試行しても失敗したため送らずに止めた残りの件数
+    bizNg: 0, // 失敗のうち業務エラー（{"status":"error"} 等。件数制限で起きる失敗）の件数
+    total: items.length, // 処理対象の件数（件数制限の案内を出すかの判定に使う）
     reloadFailed: false // 処理後の一覧の取り直しに失敗した（呼び出し側で設定）
   };
   openProgress(label, items.length);
@@ -2097,6 +2100,7 @@ async function runBulk(label, items, task, keyOf) {
     } else if (isBizOk(r)) res.ok++;
     else {
       res.ng++;
+      if (isRetryableBizError(r)) res.bizNg++;
       res.failed.push(keyOf(items[i]));
       const reason =
         clipText(rawText(r) || (r && r.error ? String(r.error) : '')) || `HTTP ${r && r.status}`;
@@ -2110,6 +2114,9 @@ async function runBulk(label, items, task, keyOf) {
       break;
     }
   }
+  // 未処理（送らなかった）の日報を、結果で示せるように集める（末尾から未処理件数ぶん）
+  const pendingCount = res.canceled + res.aborted + res.limited;
+  res.pending = items.slice(items.length - pendingCount).map(keyOf);
   // 呼び出し側が続けて一覧を取り直すため、その間も分かるように表示する（結果は reportBulk）
   $('btnProgCancel').disabled = true;
   if (!res.aborted) {
@@ -2133,9 +2140,13 @@ function reportBulk(label, res, skipLabel) {
   if (res.skip) parts.push(`${skipLabel || '対象なし'} ${res.skip} 件`);
   if (res.canceled) parts.push(`中断 ${res.canceled} 件（未処理）`);
   if (res.aborted) parts.push(`未処理 ${res.aborted} 件（ログイン切れ等で中断）`);
+  // 20 件を超える処理で業務エラー（件数制限）が出たときは、原因と対処を案内文でまとめて示す
+  const limitNote = res.total > BULK_BATCH && (res.bizNg > 0 || res.limited > 0);
   if (res.limited)
     parts.push(
-      `未処理 ${res.limited} 件（再試行しても失敗したため中断。しばらく待ってから再実行してください）`
+      limitNote
+        ? `未処理 ${res.limited} 件（件数制限のため中断）`
+        : `未処理 ${res.limited} 件（再試行しても失敗したため中断。しばらく待ってから再実行してください）`
     );
   // 処理後の一覧の取り直しに失敗した場合、一覧は処理前のまま（削除済みの行が残る等）なので必ず知らせる
   if (res.reloadFailed) parts.push('一覧の再取得に失敗（「↻ 一覧更新」を押してください）');
@@ -2155,6 +2166,20 @@ function reportBulk(label, res, skipLabel) {
   box.innerHTML = '';
   box.className = 'prog-result' + (bad ? ' is-ng' : ' is-ok');
   if (!bad) box.appendChild(cellDiv('prog-msg', 'すべて完了しました。'));
+  if (limitNote) {
+    const note = document.createElement('div');
+    note.className = 'prog-limit-note';
+    note.appendChild(cellDiv('prog-limit-title', '日報システムの件数制限により失敗しました'));
+    note.appendChild(
+      cellDiv(
+        'prog-limit-text',
+        `短い時間に${BULK_BATCH}件を超えて登録・変更・削除すると、日報システムの制限で受け付けられなくなります。` +
+          '1〜2分ほど時間をおいてから、失敗・未処理の日報をもう一度実行してください。' +
+          `次回からは${BULK_BATCH}件以下に分けて実行すると、制限にかかりにくくなります。`
+      )
+    );
+    box.appendChild(note);
+  }
   if (res.reasons && res.reasons.size) {
     box.appendChild(cellDiv('prog-h', '失敗理由（日報システムの応答）'));
     res.reasons.forEach((n, reason) =>
@@ -2164,6 +2189,10 @@ function reportBulk(label, res, skipLabel) {
   if (res.failed.length) {
     box.appendChild(cellDiv('prog-h', `失敗した日報（${res.failed.length} 件）`));
     box.appendChild(cellDiv('prog-failed', res.failed.join('\n')));
+  }
+  if (res.pending && res.pending.length) {
+    box.appendChild(cellDiv('prog-h', `未処理の日報（${res.pending.length} 件）`));
+    box.appendChild(cellDiv('prog-failed', res.pending.join('\n')));
   }
   $('btnProgCancel').classList.add('hidden');
   $('btnProgClose').classList.remove('hidden');
