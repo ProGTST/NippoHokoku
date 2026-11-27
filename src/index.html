@@ -220,8 +220,14 @@
               <div class="frow">
                 <label>日付</label>
                 <button id="btnDatePrev" class="date-shift" title="前の日へ">◀</button>
-                <input id="date" type="date" class="w-field" />
-                <span id="dateDow" class="date-dow"></span>
+                <!-- 日付欄の文字は Chromium が描画し曜日を足せないため、文字を透明にして
+                     「yyyy/mm/dd(曜)」を上に重ねて表示する（クリックは下の日付欄へ通す） -->
+                <span id="dateField" class="date-field">
+                  <input id="date" type="date" class="w-field" />
+                  <span class="date-disp" aria-hidden="true"
+                    ><span id="dateDispText"></span><span id="dateDow" class="date-dow"></span
+                  ></span>
+                </span>
                 <button id="btnDateNext" class="date-shift" title="次の日へ">▶</button>
                 <button data-days="-3" class="date-btn">一昨昨日</button>
                 <button data-days="-2" class="date-btn">一昨日</button>

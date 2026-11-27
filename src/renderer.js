@@ -2029,16 +2029,23 @@ async function doDeleteInner() {
   }
 }
 
-// 日報登録の日付の右に曜日を表示する（土=青、日曜・祝日=赤。日報一覧の日付ヘッダー行と同じ判定）。
+// 日報登録の日付欄の中に「yyyy/mm/dd(曜)」を表示する（曜日は 土=青、日曜・祝日=赤。日報一覧の
+// 日付ヘッダー行と同じ判定）。日付欄の文字は CSS（.date-field.has-value）で透明にし、上に重ねて表示する。
 function updateDateDow() {
   const el = $('dateDow');
   const n = dateNum(getVal('date'));
+  $('dateField').classList.toggle('has-value', !!n);
   if (!n) {
+    $('dateDispText').textContent = '';
     el.textContent = '';
     el.className = 'date-dow';
+    el.title = '';
     return;
   }
-  el.textContent = `(${WEEKDAYS[numToDate(n).getDay()]})`;
+  const d = numToDate(n);
+  $('dateDispText').textContent =
+    `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  el.textContent = `(${WEEKDAYS[d.getDay()]})`;
   el.className = ('date-dow ' + dowClass(n)).trim();
   el.title = jpHolidays(Math.floor(n / 10000)).has(n) ? '祝日' : '';
 }

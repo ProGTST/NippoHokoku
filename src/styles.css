@@ -589,8 +589,42 @@ input[readonly] {
 button.date-shift {
   padding: 5px 7px;
 }
+/* 日付欄の中に「yyyy/mm/dd(曜)」を重ねて表示する。日付欄（input[type=date]）の文字は Chromium が
+   描画し表示形式を変えられないため、値があるときは元の文字を透明にし、上に同じ位置で重ねる。
+   重ねた表示は pointer-events: none で、クリックは下の日付欄（カレンダー）へ通す。
+   値が空のときは重ねず、日付欄の元の表示（年/月/日）を見せる。 */
+.date-field {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.date-disp {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  padding-left: 9px; /* input の border 1px ＋ padding 7px ＋ 日付欄内側の余白 1px */
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.date-field.has-value .date-disp {
+  display: flex;
+}
+.date-field.has-value input[type='date']::-webkit-datetime-edit {
+  color: transparent;
+}
+/* クリックで選ばれた年・月・日の欄の強調（背景色）も、重ねた表示の下から透けないよう消す */
+.date-field.has-value input[type='date']::-webkit-datetime-edit-year-field:focus,
+.date-field.has-value input[type='date']::-webkit-datetime-edit-month-field:focus,
+.date-field.has-value input[type='date']::-webkit-datetime-edit-day-field:focus {
+  background: transparent;
+  color: transparent;
+}
 .date-dow {
-  min-width: 2.6em;
   font-weight: 600;
 }
 .date-dow.dow-sat {
