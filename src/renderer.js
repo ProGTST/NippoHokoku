@@ -2475,6 +2475,7 @@ function openBulkCopy() {
   $('bulkDateToWrap').classList.add('hidden');
   setVal('bulkDateFrom', fmtDate(0));
   setVal('bulkDateTo', fmtDate(0));
+  $('bulkBizOnly').checked = true; // 「営業日のみ」は開くたびに ON（既定）へ戻す
   openModal('bulkCopyModal');
 }
 
@@ -2498,6 +2499,7 @@ async function doBulkCopyInner() {
     return;
   }
   let dates;
+  let skipped = 0; // 「営業日のみ」で除いた土日祝の日数
   if (mode === 'range') {
     const toIso = getVal('bulkDateTo');
     if (!toIso) {
@@ -2513,13 +2515,28 @@ async function doBulkCopyInner() {
       toast('範囲が広すぎます（最大366日）', 'ng');
       return;
     }
+    // 「営業日のみ」ON なら土日祝（日本の祝日。入力チェックと同じ isHoliday）を除く。OFF なら全日。
+    if ($('bulkBizOnly').checked) {
+      const all = dates.length;
+      dates = dates.filter((d) => !isHoliday(dateNum(d)));
+      skipped = all - dates.length;
+      if (!dates.length) {
+        toast(
+          '指定した範囲に営業日がありません（「営業日のみ」を外すと土日祝にも登録できます）',
+          'ng'
+        );
+        return;
+      }
+    }
   } else {
     dates = [toApiDate(fromIso)];
   }
   const total = rows.length * dates.length;
   if (
     !(await uiConfirm(
-      `選択 ${rows.length} 件 × ${dates.length} 日 = ${total} 件 を新規登録します。よろしいですか？`
+      `選択 ${rows.length} 件 × ${dates.length} 日 = ${total} 件 を新規登録します。` +
+        (skipped ? `（営業日のみ：土日祝 ${skipped} 日を除く）` : '') +
+        'よろしいですか？'
     ))
   )
     return;

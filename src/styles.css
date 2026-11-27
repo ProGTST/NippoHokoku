@@ -1331,6 +1331,16 @@ button.cell-filter:active {
 .range-to.hidden {
   display: none;
 }
+/* 一括コピー（範囲）の「営業日のみ」チェック（終了日の右） */
+.range-to .chk-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--text);
+}
 
 .json-details {
   margin: 4px 0;

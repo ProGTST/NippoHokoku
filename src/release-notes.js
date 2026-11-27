@@ -13,7 +13,8 @@ window.RELEASE_NOTES = [
       { type: 'improve', text: 'マウスホイールで作業時間を15分ずつ増減できるように' },
       { type: 'improve', text: '一括変更・個別変更の作業時間も15分単位のボタンで増減' },
       { type: 'improve', text: '一括コピー・一括変更の日付もカレンダーで選べるように' },
-      { type: 'improve', text: '一覧の年月もカレンダーで選べるように' }
+      { type: 'improve', text: '一覧の年月もカレンダーで選べるように' },
+      { type: 'new', text: '一括コピーの範囲指定で「営業日のみ」登録できるように' }
     ]
   },
   {

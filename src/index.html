@@ -436,10 +436,17 @@
             <label>日付</label>
             <input id="bulkDateFrom" type="hidden" />
             <span id="bulkDateToWrap" class="range-to hidden"
-              >〜 <input id="bulkDateTo" type="hidden"
-            /></span>
+              >〜 <input id="bulkDateTo" type="hidden" />
+              <!-- 範囲のときだけ表示。ON（既定）なら土日祝を除いた日だけに登録する -->
+              <label class="chk-label" title="ON: 土日祝を除いた日に登録 / OFF: 範囲内の全日に登録"
+                ><input id="bulkBizOnly" type="checkbox" checked /> 営業日のみ</label
+              ></span
+            >
           </div>
-          <div class="frow muted">選択した日報を、指定日（範囲の場合は各日）に新規登録します。</div>
+          <div class="frow muted">
+            選択した日報を、指定日（範囲の場合は各日。「営業日のみ」が ON
+            なら土日祝を除く）に新規登録します。
+          </div>
         </div>
         <div class="modal-foot">
           <span class="spacer"></span>
