@@ -15,7 +15,9 @@ window.RELEASE_NOTES = [
     items: [
       { type: 'improve', text: '一括処理の進み具合をゲージ付きの画面で表示' },
       { type: 'improve', text: '一括処理の結果と失敗の理由を画面で確認できるように' },
-      { type: 'improve', text: '一括処理を途中で中断できるように' }
+      { type: 'improve', text: '一括処理を途中で中断できるように' },
+      { type: 'improve', text: '一括コピーを日付の古い順に登録するように' },
+      { type: 'fix', text: '一括コピーで21件目以降が失敗する問題を修正' }
     ]
   },
   {

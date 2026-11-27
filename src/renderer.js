@@ -1961,6 +1961,23 @@ async function runExclusive(fn) {
 // 終わったら同じポップアップに処理結果（成功・失敗件数、失敗した日報と理由）を表示する。
 // 処理中は「中断」で残りを送らずに止められる。結果は「閉じる」で閉じる。
 let bulkCancelRequested = false;
+// 日報システムの登録 API には呼び出し回数の制限がある（短い時間に 20 件を超えると {"status":"error"}
+// が返る。2026-11-27 の一括コピーで 2 回とも 21 件目以降が失敗。現行仕様.md §8.3 の「API制限値を
+// 超えています」の警告も参照）。そのため一括処理は 20 件送るごとに少し待ち、失敗したら待ってから
+// 1 回だけ送り直す。
+const BULK_BATCH = 20; // この件数を送るごとに待つ
+const BULK_BATCH_WAIT_SEC = 3; // 20 件ごとの待ち時間（秒）
+const BULK_RETRY_WAIT_SEC = 10; // 失敗したときに再試行するまでの待ち時間（秒）
+// 進捗ポップアップに残り秒数を出しながら待つ。「中断」が押されたらすぐ戻る。
+/** @param {number} sec @param {(left: number) => string} textOf */
+async function waitWithCountdown(sec, textOf) {
+  for (let left = sec; left > 0; left--) {
+    if (bulkCancelRequested) return;
+    $('progText').textContent = textOf(left);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (!bulkCancelRequested) $('progText').textContent = '再開しています…';
+}
 function openProgress(label, total) {
   bulkCancelRequested = false;
   $('progTitle').textContent = `${label}の実行中`;
@@ -2009,12 +2026,37 @@ async function runBulk(label, items, task, keyOf) {
     reloadFailed: false // 処理後の一覧の取り直しに失敗した（呼び出し側で設定）
   };
   openProgress(label, items.length);
+  let sent = 0; // 日報システムへ送った回数（再試行を含む。20 件ごとの待ちに使う）
+  const send = async (item) => {
+    if (sent > 0 && sent % BULK_BATCH === 0) {
+      await waitWithCountdown(
+        BULK_BATCH_WAIT_SEC,
+        (left) => `${BULK_BATCH} 件ごとに少し待っています…（あと ${left} 秒）`
+      );
+      if (bulkCancelRequested) return 'cancel';
+    }
+    sent++;
+    return await task(item);
+  };
   for (let i = 0; i < items.length; i++) {
     if (bulkCancelRequested) {
       res.canceled = items.length - i;
       break;
     }
-    const r = await task(items[i]);
+    let r = await send(items[i]);
+    // 失敗（業務エラー・HTTP エラー）したら、少し待って 1 回だけ送り直す（呼び出し回数の制限対策）
+    if (r !== 'cancel' && r !== 'skip' && r != null && !isBizOk(r)) {
+      await waitWithCountdown(
+        BULK_RETRY_WAIT_SEC,
+        (left) => `${i + 1} 件目が失敗したため、待ってから再試行します…（あと ${left} 秒）`
+      );
+      if (!bulkCancelRequested) r = await send(items[i]);
+    }
+    if (r === 'cancel' || (bulkCancelRequested && r != null && r !== 'skip' && !isBizOk(r))) {
+      // 待っている間に中断された（この項目は未処理）
+      res.canceled = items.length - i;
+      break;
+    }
     if (r === 'skip') res.skip++;
     else if (r === null || r === undefined) {
       // 認証切れ等。残りは送らずに中断（この項目も未処理として数える）
@@ -2649,7 +2691,8 @@ async function doBulkCopyInner() {
   // 実行中はモーダルを閉じ、進捗と結果は進捗ポップアップに出す（再実行は runExclusive で防止）
   closeModal('bulkCopyModal');
   const jobs = [];
-  rows.forEach((r) => dates.forEach((d) => jobs.push({ r, d })));
+  // 日付の昇順（dates は昇順）→ 同じ日付の中は日報一覧の表示順（selectedRows は表示順）で送る
+  dates.forEach((d) => rows.forEach((r) => jobs.push({ r, d })));
   const res = await runBulk(
     '一括コピー',
     jobs,
