@@ -4,7 +4,12 @@ export {};
 declare global {
   interface Window {
     // 更新内容のお知らせ（src/release-notes.js。新しいバージョンが先頭）
-    RELEASE_NOTES: { version: string; date: string; items: string[] }[];
+    RELEASE_NOTES: {
+      version: string;
+      date: string;
+      // type: 'new'＝新機能 / 'improve'＝改善 / 'fix'＝不具合修正
+      items: { type: 'new' | 'improve' | 'fix'; text: string }[];
+    }[];
     appInfo: {
       name: string;
       targetUrl: string;

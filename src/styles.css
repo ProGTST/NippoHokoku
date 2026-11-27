@@ -161,33 +161,103 @@ body.app .tanto-group {
   display: none;
 }
 /* お知らせ一覧（バージョンごとに見出し＋箇条書き） */
-.notice-list {
-  max-height: 60vh;
-  overflow-y: auto;
-  line-height: 1.7;
+.notice-modal {
+  width: 640px;
 }
-.notice-ver {
-  margin: 12px 0 2px;
-  font-size: 13px;
+/* 上部の案内（ラベルの意味・ご利用中のバージョン） */
+.notice-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.notice-legend .notice-using {
+  margin-left: auto;
+}
+/* バージョンごとのカード（新しい順）。最新のカードは左端を青で強調 */
+.notice-list {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.notice-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--panel);
+}
+.notice-card.is-latest {
+  border-left: 4px solid var(--primary);
+}
+.notice-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.notice-version {
+  font-size: 15px;
   font-weight: 700;
 }
-.notice-ver:first-child {
-  margin-top: 0;
-}
-.notice-ver .notice-date {
-  margin-left: 8px;
-  font-weight: 400;
+.notice-date {
   color: var(--muted);
+  font-size: 12px;
 }
-.notice-ver .notice-current {
-  margin-left: 8px;
+.notice-chip {
   font-size: 11px;
   font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+.notice-chip.chip-latest {
+  background: var(--badge-new-bg);
+  color: var(--primary-d);
+}
+.notice-chip.chip-using {
+  background: var(--badge-copy-bg);
   color: var(--ok-d);
 }
-.notice-list ul {
+/* 各項目: 種類ラベル（新機能／改善／修正）＋本文 */
+.notice-items {
+  list-style: none;
   margin: 0;
-  padding-left: 20px;
+  padding: 0;
+}
+.notice-items li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  line-height: 1.6;
+}
+.notice-tag {
+  flex: none;
+  width: 4.2em;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 1px 0;
+  margin-top: 2px;
+}
+.notice-tag.tag-new {
+  background: var(--badge-new-bg);
+  color: var(--primary-d);
+}
+.notice-tag.tag-improve {
+  background: var(--badge-copy-bg);
+  color: var(--ok-d);
+}
+.notice-tag.tag-fix {
+  background: var(--orange-soft);
+  color: var(--warn-text);
 }
 .dot {
   width: 9px;

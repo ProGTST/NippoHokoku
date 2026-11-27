@@ -1660,6 +1660,7 @@ function navigateEdit(delta) {
 function openEditModal(row) {
   // 一覧（並び順・絞り込み結果）上の位置を記録し、◀▶ の前後移動の基準にする。
   currentEditIndex = currentNippoList.findIndex((r) => r['日報コード'] === row['日報コード']);
+  hoursAutoFill = false; // 修正では作業時間を自動で入れ直さない
   setVal('nippoCd', row['日報コード']);
   setVal('date', toInputDate(row['日付']));
   setVal('ankenCd', row['案件コード']);
@@ -1693,6 +1694,7 @@ function openNewModal() {
   updateMode();
   takeSnapshot(); // 新規のデフォルト表示（リセットの復元先）
   currentEditIndex = -1; // 新規は一覧に紐づかないため前後移動なし
+  hoursAutoFill = true; // 作業時間は合計の取得後に「8 − その日の合計」を自動で入れる
   openModal('registModal');
   doTotal(); // 当日の合計を自動取得
 }
@@ -1722,6 +1724,8 @@ function resetForm() {
   SNAPSHOT_FIELDS.forEach((f) => setVal(f, formSnapshot[f]));
   exitCopyMode();
   updateMode();
+  // 新規モードに戻した場合は、作業時間の自動入力（8 − その日の合計）もやり直す
+  hoursAutoFill = getVal('nippoCd').trim() === '';
   doTotal(); // 復元した日付に応じた合計を再表示
   toast('入力をリセットしました', 'ok');
 }
@@ -2072,7 +2076,21 @@ async function doTotal() {
   if (!d || !t) return;
   const r = await callApi('getTotal', { tanto: t, date: d }, '合計取得', true);
   if (seq !== totalSeq) return; // 後から出した要求がある（古い応答は捨てる）
-  if (r && r.ok) $('totalVal').textContent = r.data ?? '-';
+  if (r && r.ok) {
+    $('totalVal').textContent = r.data ?? '-';
+    fillDefaultHours(r.data);
+  }
+}
+// 新規登録の作業時間の初期値＝「8 − その日の作業時間合計」（0 以下なら 0）。
+// 新規モード（日報コード空・コピー登録ではない）で、利用者がまだ作業時間を触っていない間だけ入れる
+// （◀▶ 等で日付を変えたら、その日の合計で入れ直す。修正・コピー登録の作業時間は変えない）。
+// getTotal は日報の無い日は ""、ある日は "8.00" のような文字列を返す（現行仕様.md §8.9）。
+let hoursAutoFill = false;
+function fillDefaultHours(totalData) {
+  if (!hoursAutoFill || getVal('nippoCd').trim() !== '' || isCopyMode()) return;
+  const total = Number(String(totalData ?? '').trim() || 0);
+  if (!Number.isFinite(total)) return; // 想定外の応答なら入れない（空のまま利用者が入力）
+  setVal('sagyozikan', String(Math.max(0, roundHours(STD_HOURS - total))));
 }
 
 // ---- 一括コピー / 一括削除 -----------------------------------------------
@@ -3199,32 +3217,71 @@ function updateNoticeBadge() {
   const latest = latestNoticeVersion();
   $('noticeBadge').classList.toggle('hidden', !latest || readNoticeSeen() === latest);
 }
+// お知らせの種類ラベル（release-notes.js の items[].type）
+const NOTICE_TAGS = { new: '新機能', improve: '改善', fix: '修正' };
+// お知らせを開く。上部に種類ラベルの意味と「ご利用中」のバージョンを示し、その下にバージョンごとの
+// カード（新しい順。最新は強調）で、種類ラベル付きの箇条書きを表示する。
 function openNotice() {
+  const notes = window.RELEASE_NOTES || [];
+  const legend = $('noticeLegend');
+  legend.innerHTML = '';
+  const cap = document.createElement('span');
+  cap.textContent = '項目の種類:';
+  legend.appendChild(cap);
+  Object.keys(NOTICE_TAGS).forEach((k) => {
+    const t = document.createElement('span');
+    t.className = `notice-tag tag-${k}`;
+    t.textContent = NOTICE_TAGS[k];
+    legend.appendChild(t);
+  });
+  if (currentVersion) {
+    const u = document.createElement('span');
+    u.className = 'notice-using';
+    u.textContent = `ご利用中のバージョン: v${currentVersion}`;
+    legend.appendChild(u);
+  }
   const list = $('noticeList');
   list.innerHTML = '';
-  (window.RELEASE_NOTES || []).forEach((n) => {
-    const h = document.createElement('div');
-    h.className = 'notice-ver';
-    h.textContent = `v${n.version}`;
+  notes.forEach((n, idx) => {
+    const card = document.createElement('section');
+    card.className = 'notice-card' + (idx === 0 ? ' is-latest' : '');
+    const head = document.createElement('div');
+    head.className = 'notice-card-head';
+    const v = document.createElement('span');
+    v.className = 'notice-version';
+    v.textContent = `v${n.version}`;
     const d = document.createElement('span');
     d.className = 'notice-date';
     d.textContent = n.date;
-    h.appendChild(d);
-    if (currentVersion && n.version === currentVersion) {
+    head.appendChild(v);
+    head.appendChild(d);
+    const chip = (cls, text) => {
       const c = document.createElement('span');
-      c.className = 'notice-current';
-      c.textContent = 'ご利用中';
-      h.appendChild(c);
-    }
+      c.className = `notice-chip ${cls}`;
+      c.textContent = text;
+      head.appendChild(c);
+    };
+    if (idx === 0) chip('chip-latest', '最新');
+    if (currentVersion && n.version === currentVersion) chip('chip-using', 'ご利用中');
     const ul = document.createElement('ul');
-    n.items.forEach((t) => {
+    ul.className = 'notice-items';
+    n.items.forEach((it) => {
       const li = document.createElement('li');
-      li.textContent = t;
+      const tag = document.createElement('span');
+      const type = NOTICE_TAGS[it.type] ? it.type : 'improve';
+      tag.className = `notice-tag tag-${type}`;
+      tag.textContent = NOTICE_TAGS[type];
+      const text = document.createElement('span');
+      text.textContent = it.text;
+      li.appendChild(tag);
+      li.appendChild(text);
       ul.appendChild(li);
     });
-    list.appendChild(h);
-    list.appendChild(ul);
+    card.appendChild(head);
+    card.appendChild(ul);
+    list.appendChild(card);
   });
+  list.scrollTop = 0;
   openModal('noticeModal');
   try {
     localStorage.setItem(NOTICE_SEEN_KEY, latestNoticeVersion());
@@ -3559,6 +3616,8 @@ function wire() {
     },
     { passive: false }
   );
+  // 利用者が作業時間を入力・増減したら、以後は自動入力（8 − その日の合計）で上書きしない
+  $('sagyozikan').addEventListener('input', () => (hoursAutoFill = false));
   $('btnDatePrev').addEventListener('click', () => shiftRegDate(-1));
   $('btnDateNext').addEventListener('click', () => shiftRegDate(1));
   $('btnAnkenSearch').addEventListener('click', () => openAnkenModal());

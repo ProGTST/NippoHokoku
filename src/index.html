@@ -494,12 +494,13 @@
     <!-- 案件コード設定基準（インフォメーション） -->
     <!-- 更新内容のお知らせ（ヘッダーのベルマーク。内容は release-notes.js） -->
     <div id="noticeModal" class="modal-overlay hidden">
-      <div class="modal modal-narrow">
+      <div class="modal notice-modal">
         <div class="modal-head">
           <span class="modal-title">更新内容のお知らせ</span>
           <button id="btnCloseNotice" class="ghost" title="閉じる">✕</button>
         </div>
         <div class="modal-body">
+          <div id="noticeLegend" class="notice-legend"></div>
           <div id="noticeList" class="notice-list"></div>
         </div>
       </div>
