@@ -1406,6 +1406,71 @@ button.cell-filter:active {
   width: 1200px;
 }
 /* 入力チェック結果 */
+/* 一括処理の進捗・結果ポップアップ */
+.progress-modal {
+  width: 520px;
+}
+/* 処理中は「中断」、結果表示では「閉じる」だけを出す（共通の .hidden は無いためここで定義） */
+.progress-modal .hidden {
+  display: none;
+}
+.prog-text {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.prog-bar {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.prog-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  transition: width 0.2s ease;
+}
+.prog-counts {
+  margin-top: 6px;
+  color: var(--text-sub);
+}
+.prog-counts.has-ng {
+  color: var(--danger);
+}
+.prog-result {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prog-result.hidden {
+  display: none;
+}
+.prog-result.is-ok .prog-msg {
+  color: var(--ok-d);
+  font-weight: 600;
+}
+.prog-h {
+  margin-top: 6px;
+  font-weight: 600;
+}
+.prog-reason {
+  color: var(--danger);
+  word-break: break-all;
+}
+.prog-failed {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-line;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12px;
+}
 .modal-check {
   width: 860px;
 }

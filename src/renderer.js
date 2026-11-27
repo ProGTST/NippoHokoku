@@ -1956,11 +1956,40 @@ async function runExclusive(fn) {
   }
 }
 
+// ---- 一括処理の進捗・結果ポップアップ（progressModal） ---------------------------
+// 一括コピー・一括削除・一括変更・個別変更・一括置換の進捗をゲージ付きのポップアップで表示し、
+// 終わったら同じポップアップに処理結果（成功・失敗件数、失敗した日報と理由）を表示する。
+// 処理中は「中断」で残りを送らずに止められる。結果は「閉じる」で閉じる。
+let bulkCancelRequested = false;
+function openProgress(label, total) {
+  bulkCancelRequested = false;
+  $('progTitle').textContent = `${label}の実行中`;
+  $('progResult').classList.add('hidden');
+  $('progResult').textContent = '';
+  $('progResult').className = 'prog-result hidden';
+  $('btnProgCancel').classList.remove('hidden');
+  $('btnProgCancel').disabled = false;
+  $('btnProgClose').classList.add('hidden');
+  updateProgress(0, total, { ok: 0, ng: 0, skip: 0 });
+  openModal('progressModal');
+}
+/** @param {number} done @param {number} total @param {{ ok: number, ng: number, skip: number }} res @param {string} [text] */
+function updateProgress(done, total, res, text) {
+  $('progText').textContent = text || `${done} / ${total} 件 処理済み`;
+  $('progFill').style.width = `${total ? Math.round((done / total) * 100) : 100}%`;
+  const c = [`成功 ${res.ok} 件`];
+  if (res.ng) c.push(`失敗 ${res.ng} 件`);
+  if (res.skip) c.push(`対象なし ${res.skip} 件`);
+  $('progCounts').textContent = c.join(' / ');
+  $('progCounts').classList.toggle('has-ng', res.ng > 0);
+}
+
 /**
  * 一括処理のループ実行。items を順に task(item) で API 実行し、結果を集計する。
- * - 進捗をステータス欄に「label中… n/N」で表示する。
+ * - 進捗はゲージ付きのポップアップ（progressModal）に表示し、結果は reportBulk が同じポップアップに出す。
  * - callApi が null を返した（ログイン切れ・実行エラー・準備中）ら、以降は送らず中断する。
- * - 失敗した項目は keyOf(item) で識別子を集め、利用者が分かるように返す。
+ * - 利用者が「中断」を押したら、以降は送らずに止める（canceled に残り件数）。
+ * - 失敗した項目は keyOf(item) で識別子を集め、失敗理由（サーバーの応答）も理由ごとに数える。
  * task は callApi の結果を返し、null 以外で「対象なし」とする場合は 'skip' を返す。
  * @template T
  * @param {string} label
@@ -1974,11 +2003,17 @@ async function runBulk(label, items, task, keyOf) {
     ng: 0,
     skip: 0,
     failed: /** @type {string[]} */ ([]),
+    reasons: /** @type {Map<string, number>} */ (new Map()), // 失敗理由 → 件数
     aborted: 0,
+    canceled: 0,
     reloadFailed: false // 処理後の一覧の取り直しに失敗した（呼び出し側で設定）
   };
+  openProgress(label, items.length);
   for (let i = 0; i < items.length; i++) {
-    setStatus(`${label}中… ${i + 1} / ${items.length}`);
+    if (bulkCancelRequested) {
+      res.canceled = items.length - i;
+      break;
+    }
     const r = await task(items[i]);
     if (r === 'skip') res.skip++;
     else if (r === null || r === undefined) {
@@ -1989,23 +2024,65 @@ async function runBulk(label, items, task, keyOf) {
     else {
       res.ng++;
       res.failed.push(keyOf(items[i]));
+      const reason =
+        clipText(rawText(r) || (r && r.error ? String(r.error) : '')) || `HTTP ${r && r.status}`;
+      res.reasons.set(reason, (res.reasons.get(reason) || 0) + 1);
     }
+    updateProgress(i + 1, items.length, res);
+  }
+  // 呼び出し側が続けて一覧を取り直すため、その間も分かるように表示する（結果は reportBulk）
+  $('btnProgCancel').disabled = true;
+  if (!res.aborted) {
+    const done = items.length - res.canceled;
+    updateProgress(
+      done,
+      items.length,
+      res,
+      `${done} / ${items.length} 件 処理済み（一覧を更新中…）`
+    );
   }
   return res;
 }
 
-// runBulk の結果をトーストとステータス欄に出す（失敗した日報コード・中断件数も示す）。
+// runBulk の結果を進捗ポップアップに表示する（失敗した日報・失敗理由・中断件数も示す）。
+// 画面下のステータス欄には出さない（処理中に callApi が出した失敗表示も消す）。ログイン切れで
+// 認証画面へ戻った場合は、ポップアップは閉じたまま（認証画面を覆わない）トーストで知らせる。
 function reportBulk(label, res, skipLabel) {
   const parts = [`成功 ${res.ok} 件`];
   if (res.ng) parts.push(`失敗 ${res.ng} 件`);
   if (res.skip) parts.push(`${skipLabel || '対象なし'} ${res.skip} 件`);
+  if (res.canceled) parts.push(`中断 ${res.canceled} 件（未処理）`);
   if (res.aborted) parts.push(`未処理 ${res.aborted} 件（ログイン切れ等で中断）`);
   // 処理後の一覧の取り直しに失敗した場合、一覧は処理前のまま（削除済みの行が残る等）なので必ず知らせる
   if (res.reloadFailed) parts.push('一覧の再取得に失敗（「↻ 一覧更新」を押してください）');
-  const bad = res.ng > 0 || res.aborted > 0 || res.reloadFailed;
-  toast(`${label}: ${parts.join(' / ')}`, bad ? 'ng' : 'ok');
-  const detail = res.failed.length ? ` / 失敗: ${res.failed.join(', ')}` : '';
-  setStatus(bad ? `${label}: ${parts.join(' / ')}${detail}` : '');
+  const bad = res.ng > 0 || res.aborted > 0 || res.canceled > 0 || res.reloadFailed;
+  const summary = `${label}: ${parts.join(' / ')}`;
+  if (!isOpen('progressModal')) {
+    // ログイン切れ等でポップアップが閉じられた（ステータス欄の「ログインが必要です」は残す）
+    toast(summary, bad ? 'ng' : 'ok');
+    return;
+  }
+  setStatus('');
+  $('progTitle').textContent = `${label}の結果`;
+  $('progText').textContent = parts.join(' / ');
+  $('progCounts').textContent = '';
+  const box = $('progResult');
+  box.innerHTML = '';
+  box.className = 'prog-result' + (bad ? ' is-ng' : ' is-ok');
+  if (!bad) box.appendChild(cellDiv('prog-msg', 'すべて完了しました。'));
+  if (res.reasons && res.reasons.size) {
+    box.appendChild(cellDiv('prog-h', '失敗理由（日報システムの応答）'));
+    res.reasons.forEach((n, reason) =>
+      box.appendChild(cellDiv('prog-reason', `${reason}（${n} 件）`))
+    );
+  }
+  if (res.failed.length) {
+    box.appendChild(cellDiv('prog-h', `失敗した日報（${res.failed.length} 件）`));
+    box.appendChild(cellDiv('prog-failed', res.failed.join('\n')));
+  }
+  $('btnProgCancel').classList.add('hidden');
+  $('btnProgClose').classList.remove('hidden');
+  $('btnProgClose').focus();
 }
 
 // ---- 登録 / 更新 / 削除 ---------------------------------------------------
@@ -2569,7 +2646,7 @@ async function doBulkCopyInner() {
   )
     return;
 
-  // 実行中はモーダルを閉じ、進捗はステータス欄に出す（再実行は runExclusive で防止）
+  // 実行中はモーダルを閉じ、進捗と結果は進捗ポップアップに出す（再実行は runExclusive で防止）
   closeModal('bulkCopyModal');
   const jobs = [];
   rows.forEach((r) => dates.forEach((d) => jobs.push({ r, d })));
@@ -4041,6 +4118,14 @@ function wire() {
   $('btnClosePerm').addEventListener('click', () => cancelPerm()); // ✕ で中断
   $('btnPermFull').addEventListener('click', () => confirmPerm(false)); // 全権許可
   $('btnPermView').addEventListener('click', () => confirmPerm(true)); // 参照のみ
+
+  // 一括処理の進捗・結果ポップアップ
+  $('btnProgCancel').addEventListener('click', () => {
+    bulkCancelRequested = true; // 送信中の1件が終わったところで止める
+    $('btnProgCancel').disabled = true;
+    $('progText').textContent = '中断しています…（送信中の1件が終わるまでお待ちください）';
+  });
+  $('btnProgClose').addEventListener('click', () => closeModal('progressModal'));
 
   // 共通確認モーダル（native confirm の代替）
   $('btnConfirmOk').addEventListener('click', () => closeConfirm(true));

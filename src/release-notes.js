@@ -10,6 +10,15 @@
 // renderer.js から参照できるよう window に公開する（型は types/globals.d.ts の Window.RELEASE_NOTES）。
 window.RELEASE_NOTES = [
   {
+    version: '0.1.25',
+    date: '2026-11-27',
+    items: [
+      { type: 'improve', text: '一括処理の進み具合をゲージ付きの画面で表示' },
+      { type: 'improve', text: '一括処理の結果と失敗の理由を画面で確認できるように' },
+      { type: 'improve', text: '一括処理を途中で中断できるように' }
+    ]
+  },
+  {
     version: '0.1.24',
     date: '2026-11-27',
     items: [

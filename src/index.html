@@ -667,6 +667,28 @@
       </div>
     </div>
 
+    <!-- 一括処理（一括コピー・一括削除・一括変更・個別変更・一括置換）の進捗と処理結果（runBulk / reportBulk） -->
+    <div id="progressModal" class="modal-overlay hidden">
+      <div class="modal modal-narrow progress-modal">
+        <div class="modal-head">
+          <span id="progTitle" class="modal-title"></span>
+        </div>
+        <div class="modal-body">
+          <div id="progText" class="prog-text"></div>
+          <div class="prog-bar"><span id="progFill" class="prog-fill"></span></div>
+          <div id="progCounts" class="prog-counts"></div>
+          <div id="progResult" class="prog-result hidden"></div>
+        </div>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button id="btnProgCancel" class="ghost" title="残りの処理を送らずに止めます">
+            中断
+          </button>
+          <button id="btnProgClose" class="primary hidden">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 共通確認モーダル（native confirm の代替。webview へのフォーカス移動を避ける） -->
     <div id="confirmModal" class="modal-overlay hidden">
       <div class="modal modal-narrow">
